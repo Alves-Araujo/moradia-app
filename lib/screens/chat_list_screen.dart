@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import '../main.dart';
 import 'chat_detail_screen.dart';
 
-/// Modelo de conversa para exibição na lista de chats.
 class _Conversa {
   final String id;
   final String nome;
@@ -63,11 +63,11 @@ class TelaListaChats extends StatelessWidget {
 
     return Column(
       children: [
-        // Header
+        // header
         Container(
           padding: EdgeInsets.only(top: topPadding + 12, left: 20, right: 20, bottom: 16),
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            color: isDark ? corCardEscuro : Colors.white,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withAlpha(isDark ? 30 : 10),
@@ -84,14 +84,14 @@ class TelaListaChats extends StatelessWidget {
               ),
               const Spacer(),
               IconButton(
-                icon: const Icon(Icons.search_rounded, color: Colors.blueAccent),
+                icon: const Icon(Icons.search_rounded, color: corPrimaria),
                 onPressed: () {},
               ),
             ],
           ),
         ),
 
-        // Lista de conversas
+        // lista de conversas
         Expanded(
           child: _conversas.isEmpty
               ? Center(
@@ -136,10 +136,18 @@ class _ItemConversa extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      leading: CircleAvatar(
-        radius: 24,
-        backgroundColor: Colors.blueAccent.withAlpha(25),
-        child: Icon(conversa.avatar, color: Colors.blueAccent, size: 24),
+      leading: Container(
+        width: 48,
+        height: 48,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            colors: [corPrimaria, corPrimaria2],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Icon(conversa.avatar, color: Colors.white, size: 22),
       ),
       title: Text(
         conversa.nome,
@@ -170,7 +178,7 @@ class _ItemConversa extends StatelessWidget {
             conversa.horario,
             style: TextStyle(
               fontSize: 12,
-              color: conversa.naoLida ? Colors.blueAccent : (isDark ? Colors.white38 : Colors.grey),
+              color: conversa.naoLida ? corPrimaria : (isDark ? Colors.white38 : Colors.grey),
             ),
           ),
           if (conversa.naoLida) ...[
@@ -179,7 +187,7 @@ class _ItemConversa extends StatelessWidget {
               width: 10,
               height: 10,
               decoration: const BoxDecoration(
-                color: Colors.blueAccent,
+                color: corPrimaria,
                 shape: BoxShape.circle,
               ),
             ),

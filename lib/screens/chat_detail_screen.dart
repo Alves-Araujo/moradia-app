@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../main.dart';
 
 class TelaChatDetalhe extends StatefulWidget {
   final String nomeContato;
@@ -57,7 +58,7 @@ class _TelaChatDetalheState extends State<TelaChatDetalhe> {
       _msgController.clear();
     });
 
-    // Scroll pro final
+    // scroll pro final da lista
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -75,7 +76,7 @@ class _TelaChatDetalheState extends State<TelaChatDetalhe> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        backgroundColor: isDark ? corCardEscuro : Colors.white,
         elevation: 0.5,
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: isDark ? Colors.white : Colors.black87),
@@ -83,10 +84,18 @@ class _TelaChatDetalheState extends State<TelaChatDetalhe> {
         ),
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: Colors.blueAccent.withAlpha(25),
-              child: const Icon(Icons.person_rounded, color: Colors.blueAccent, size: 20),
+            Container(
+              width: 36,
+              height: 36,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [corPrimaria, corPrimaria2],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: const Icon(Icons.person_rounded, color: Colors.white, size: 18),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -106,7 +115,7 @@ class _TelaChatDetalheState extends State<TelaChatDetalhe> {
       ),
       body: Column(
         children: [
-          // Mensagens
+          // lista de mensagens
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
@@ -119,7 +128,7 @@ class _TelaChatDetalheState extends State<TelaChatDetalhe> {
             ),
           ),
 
-          // Barra de envio
+          // barra de envio
           Container(
             padding: EdgeInsets.only(
               left: 16,
@@ -128,7 +137,7 @@ class _TelaChatDetalheState extends State<TelaChatDetalhe> {
               bottom: MediaQuery.of(context).padding.bottom + 10,
             ),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              color: isDark ? corCardEscuro : Colors.white,
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withAlpha(isDark ? 30 : 8),
@@ -159,10 +168,15 @@ class _TelaChatDetalheState extends State<TelaChatDetalhe> {
                   ),
                 ),
                 const SizedBox(width: 8),
+                // botao de enviar
                 Container(
                   decoration: const BoxDecoration(
-                    color: Colors.blueAccent,
                     shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [corPrimaria, corPrimaria2],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
                   ),
                   child: IconButton(
                     icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
@@ -178,6 +192,7 @@ class _TelaChatDetalheState extends State<TelaChatDetalhe> {
   }
 }
 
+// balao de mensagem individual
 class _BalaoMensagem extends StatelessWidget {
   final _Mensagem mensagem;
   final bool isDark;
@@ -195,14 +210,13 @@ class _BalaoMensagem extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: eu
-              ? Colors.blueAccent
-              : (isDark ? const Color(0xFF2C2C2E) : Colors.grey.shade200),
+          gradient: eu ? gradientePrincipal : null,
+          color: eu ? null : (isDark ? const Color(0xFF252530) : Colors.grey.shade200),
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(eu ? 16 : 4),
-            bottomRight: Radius.circular(eu ? 4 : 16),
+            topLeft: const Radius.circular(18),
+            topRight: const Radius.circular(18),
+            bottomLeft: Radius.circular(eu ? 18 : 4),
+            bottomRight: Radius.circular(eu ? 4 : 18),
           ),
         ),
         child: Column(

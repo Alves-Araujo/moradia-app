@@ -24,7 +24,7 @@ class Imovel {
   });
 }
 
-/// Dados mock para desenvolvimento — posições próximas a Santa Rita do Sapucaí, MG
+// dados de teste — TODO: trocar por firebase dps
 final List<Imovel> todosOsImoveis = [
   const Imovel(
     id: '1',
