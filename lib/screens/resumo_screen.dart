@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
 import '../models/imovel.dart';
 import '../widgets/animated_gradient_button.dart';
+import 'chat_detail_screen.dart';
 
 class TelaResumo extends StatefulWidget {
   final String tipoUsuario;
@@ -14,14 +16,6 @@ class TelaResumo extends StatefulWidget {
 class _TelaResumoState extends State<TelaResumo> with SingleTickerProviderStateMixin {
   String _filtroTipo = 'Todos';
   late AnimationController _listAnimController;
-
-  List<Imovel> get _imoveisFiltrados {
-    if (_filtroTipo == 'Todos') return todosOsImoveis;
-    if (_filtroTipo == 'Moradias') {
-      return todosOsImoveis.where((i) => i.tipo == TipoListing.moradia).toList();
-    }
-    return todosOsImoveis.where((i) => i.tipo == TipoListing.evento).toList();
-  }
 
   @override
   void initState() {
@@ -89,7 +83,7 @@ class _TelaResumoState extends State<TelaResumo> with SingleTickerProviderStateM
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${_imoveisFiltrados.length} resultado(s) encontrado(s)',
+                          'Buscando resultados em tempo real...',
                           style: AppTextStyles.caption.copyWith(
                             color: isDark ? Colors.white38 : Colors.grey,
                           ),
@@ -137,12 +131,12 @@ class _TelaResumoState extends State<TelaResumo> with SingleTickerProviderStateM
                           borderRadius: BorderRadius.circular(20),
                           boxShadow: selected
                               ? [
-                                  BoxShadow(
-                                    color: (isEvento ? corAtencao : corPrimaria).withAlpha(40),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ]
+                            BoxShadow(
+                              color: (isEvento ? corAtencao : corPrimaria).withAlpha(40),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ]
                               : [],
                         ),
                         child: Text(
@@ -162,10 +156,33 @@ class _TelaResumoState extends State<TelaResumo> with SingleTickerProviderStateM
           ),
         ),
 
-        // lista de imoveis
+        // lista de imoveis vindo do Firestore
         Expanded(
-          child: _imoveisFiltrados.isEmpty
-              ? Center(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('imoveis').snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: corPrimaria));
+              }
+
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Erro ao carregar dados.', style: AppTextStyles.body.copyWith(color: corErro)),
+                );
+              }
+
+              final imoveisDoBanco = snapshot.data?.docs.map((doc) {
+                return Imovel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+              }).toList() ?? [];
+
+              final imoveisFiltrados = imoveisDoBanco.where((i) {
+                if (_filtroTipo == 'Todos') return true;
+                if (_filtroTipo == 'Moradias') return i.tipo == TipoListing.moradia;
+                return i.tipo == TipoListing.evento;
+              }).toList();
+
+              if (imoveisFiltrados.isEmpty) {
+                return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -190,38 +207,42 @@ class _TelaResumoState extends State<TelaResumo> with SingleTickerProviderStateM
                       ),
                     ],
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  itemCount: _imoveisFiltrados.length,
-                  itemBuilder: (context, index) {
-                    final imovel = _imoveisFiltrados[index];
-                    // animacao staggered pra cada card
-                    final delay = (index * 0.08).clamp(0.0, 0.6);
-                    final end = (delay + 0.4).clamp(0.0, 1.0);
-                    final slideAnim = Tween<Offset>(
-                      begin: const Offset(0, 0.1),
-                      end: Offset.zero,
-                    ).animate(CurvedAnimation(
-                      parent: _listAnimController,
-                      curve: Interval(delay, end, curve: Curves.easeOutCubic),
-                    ));
-                    final fadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
-                      CurvedAnimation(
-                        parent: _listAnimController,
-                        curve: Interval(delay, end, curve: Curves.easeOut),
-                      ),
-                    );
+                );
+              }
 
-                    return FadeTransition(
-                      opacity: fadeAnim,
-                      child: SlideTransition(
-                        position: slideAnim,
-                        child: _CardImovel(imovel: imovel, isDark: isDark),
-                      ),
-                    );
-                  },
-                ),
+              return ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                itemCount: imoveisFiltrados.length,
+                itemBuilder: (context, index) {
+                  final imovel = imoveisFiltrados[index];
+
+                  final delay = (index * 0.08).clamp(0.0, 0.6);
+                  final end = (delay + 0.4).clamp(0.0, 1.0);
+                  final slideAnim = Tween<Offset>(
+                    begin: const Offset(0, 0.1),
+                    end: Offset.zero,
+                  ).animate(CurvedAnimation(
+                    parent: _listAnimController,
+                    curve: Interval(delay, end, curve: Curves.easeOutCubic),
+                  ));
+                  final fadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+                    CurvedAnimation(
+                      parent: _listAnimController,
+                      curve: Interval(delay, end, curve: Curves.easeOut),
+                    ),
+                  );
+
+                  return FadeTransition(
+                    opacity: fadeAnim,
+                    child: SlideTransition(
+                      position: slideAnim,
+                      child: _CardImovel(imovel: imovel, isDark: isDark),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         ),
       ],
     );
@@ -290,22 +311,35 @@ class _CardImovel extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // icone com gradiente
+                // Renderização da Capa (Foto ou Ícone)
                 Container(
-                  width: 56,
-                  height: 56,
+                  width: 64,
+                  height: 64,
                   decoration: BoxDecoration(
-                    gradient: isEvento ? gradienteEvento : gradientePrincipal,
+                    gradient: imovel.fotos.isEmpty ? (isEvento ? gradienteEvento : gradientePrincipal) : null,
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: (isEvento ? corAtencao : corPrimaria).withAlpha(40),
+                        color: (isEvento ? corAtencao : corPrimaria).withAlpha(30),
                         blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),
                     ],
                   ),
-                  child: Icon(
+                  child: imovel.fotos.isNotEmpty
+                      ? ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.network(
+                      imovel.fotos.first,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Icon(
+                        isEvento ? Icons.celebration_rounded : Icons.home_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                    ),
+                  )
+                      : Icon(
                     isEvento ? Icons.celebration_rounded : Icons.home_rounded,
                     color: Colors.white,
                     size: 26,
@@ -339,7 +373,7 @@ class _CardImovel extends StatelessWidget {
                         Wrap(
                           spacing: 6,
                           runSpacing: 6,
-                          children: imovel.tags.take(3).map((tag) {
+                          children: imovel.tags.take(2).map((tag) {
                             return Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
@@ -373,7 +407,6 @@ class _CardImovel extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // preco ou badge de evento
                 if (!isEvento)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -443,7 +476,7 @@ class _DetalheImovel extends StatelessWidget {
     final bool isEvento = imovel.tipo == TipoListing.evento;
 
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.only(top: 24, bottom: 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -461,205 +494,178 @@ class _DetalheImovel extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
-          // header com icone e titulo
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  gradient: isEvento ? gradienteEvento : gradientePrincipal,
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color: (isEvento ? corAtencao : corPrimaria).withAlpha(40),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  isEvento ? Icons.celebration_rounded : Icons.home_rounded,
-                  color: Colors.white,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      imovel.titulo,
-                      style: AppTextStyles.heading3.copyWith(
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(Icons.location_on_rounded, size: 14, color: corPrimaria.withAlpha(160)),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            imovel.endereco.isNotEmpty ? imovel.endereco : 'Endereço não informado',
-                            style: AppTextStyles.caption.copyWith(
-                              color: isDark ? Colors.white38 : Colors.grey,
-                            ),
-                          ),
+          // Carrossel de Fotos se houver imagens
+          if (imovel.fotos.isNotEmpty)
+            SizedBox(
+              height: 220,
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                scrollDirection: Axis.horizontal,
+                itemCount: imovel.fotos.length,
+                itemBuilder: (context, index) {
+                  return Container(
+                    width: 280,
+                    margin: const EdgeInsets.only(right: 16),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(30),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
                       ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-          Divider(color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20)),
-          const SizedBox(height: 16),
-
-          // descricao
-          Text(
-            imovel.descricao,
-            style: AppTextStyles.body.copyWith(
-              color: isDark ? Colors.white70 : Colors.black87,
-            ),
-          ),
-
-          // features pra moradias
-          if (!isEvento) ...[
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                _FeatureChip(icon: Icons.king_bed_outlined, label: '1 quarto', isDark: isDark),
-                const SizedBox(width: 10),
-                _FeatureChip(icon: Icons.bathtub_outlined, label: '1 banh.', isDark: isDark),
-                const SizedBox(width: 10),
-                _FeatureChip(icon: Icons.square_foot_rounded, label: '35m²', isDark: isDark),
-              ],
-            ),
-          ],
-
-          if (imovel.tags.isNotEmpty) ...[
-            const SizedBox(height: 18),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: imovel.tags.map((tag) {
-                return Chip(
-                  label: Text(tag, style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : corPrimaria)),
-                  backgroundColor: isDark ? Colors.white.withAlpha(8) : corPrimaria.withAlpha(10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(
-                      color: isDark ? Colors.white.withAlpha(10) : corPrimaria.withAlpha(20),
-                    ),
-                  ),
-                  visualDensity: VisualDensity.compact,
-                );
-              }).toList(),
-            ),
-          ],
-          const SizedBox(height: 24),
-
-          // preco em destaque
-          if (!isEvento) ...[
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white.withAlpha(5) : corPrimaria.withAlpha(6),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isDark ? Colors.white.withAlpha(8) : corPrimaria.withAlpha(15),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Aluguel mensal',
-                    style: AppTextStyles.caption.copyWith(
-                      color: isDark ? Colors.white38 : Colors.grey,
-                    ),
-                  ),
-                  ShaderMask(
-                    shaderCallback: (bounds) => gradienteSecundario.createShader(bounds),
-                    child: Text(
-                      'R\$ ${imovel.preco.toInt()}/mês',
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: -0.5,
+                      image: DecorationImage(
+                        image: NetworkImage(imovel.fotos[index]),
+                        fit: BoxFit.cover,
                       ),
+                    ),
+                  );
+                },
+              ),
+            )
+          else
+          // Header antigo (cai aqui se não tiver foto)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: isEvento ? gradienteEvento : gradientePrincipal,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Icon(
+                      isEvento ? Icons.celebration_rounded : Icons.home_rounded,
+                      color: Colors.white,
+                      size: 28,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
 
-            AnimatedGradientButton(
-              label: 'Enviar Mensagem',
-              icon: Icons.chat_bubble_outline_rounded,
-              onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Row(
+          const SizedBox(height: 20),
+
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  imovel.titulo,
+                  style: AppTextStyles.heading3.copyWith(
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(Icons.location_on_rounded, size: 14, color: corPrimaria.withAlpha(160)),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        imovel.endereco.isNotEmpty ? imovel.endereco : 'Endereço não informado',
+                        style: AppTextStyles.caption.copyWith(
+                          color: isDark ? Colors.white38 : Colors.grey,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Divider(color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20)),
+                const SizedBox(height: 16),
+
+                Text(
+                  imovel.descricao,
+                  style: AppTextStyles.body.copyWith(
+                    color: isDark ? Colors.white70 : Colors.black87,
+                  ),
+                ),
+
+                if (imovel.tags.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: imovel.tags.map((tag) {
+                      return Chip(
+                        label: Text(tag, style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : corPrimaria)),
+                        backgroundColor: isDark ? Colors.white.withAlpha(8) : corPrimaria.withAlpha(10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(
+                            color: isDark ? Colors.white.withAlpha(10) : corPrimaria.withAlpha(20),
+                          ),
+                        ),
+                        visualDensity: VisualDensity.compact,
+                      );
+                    }).toList(),
+                  ),
+                ],
+                const SizedBox(height: 24),
+
+                if (!isEvento) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white.withAlpha(5) : corPrimaria.withAlpha(6),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isDark ? Colors.white.withAlpha(8) : corPrimaria.withAlpha(15),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
-                        SizedBox(width: 10),
-                        Text('Mensagem enviada ao anunciante!'),
+                        Text(
+                          'Aluguel mensal',
+                          style: AppTextStyles.caption.copyWith(
+                            color: isDark ? Colors.white38 : Colors.grey,
+                          ),
+                        ),
+                        ShaderMask(
+                          shaderCallback: (bounds) => gradienteSecundario.createShader(bounds),
+                          child: Text(
+                            'R\$ ${imovel.preco.toInt()}/mês',
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
-                    backgroundColor: corSucesso,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    margin: const EdgeInsets.all(16),
                   ),
-                );
-              },
+                  const SizedBox(height: 20),
+
+                  AnimatedGradientButton(
+                    label: 'Enviar Mensagem',
+                    icon: Icons.chat_bubble_outline_rounded,
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ChatDetailScreen(
+                            anuncianteNome: 'Proprietário',
+                            imovelTitulo: imovel.titulo,
+                            imovelId: imovel.id,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ],
             ),
-          ],
+          ),
         ],
-      ),
-    );
-  }
-}
-
-class _FeatureChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isDark;
-
-  const _FeatureChip({required this.icon, required this.label, required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withAlpha(6) : Colors.grey.withAlpha(10),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 22, color: isDark ? Colors.white54 : corPrimaria.withAlpha(160)),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white60 : Colors.black87,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

@@ -1,7 +1,10 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geolocator/geolocator.dart';
+import 'novo_anuncio_screen.dart';
 import '../main.dart';
 import '../models/imovel.dart';
 import '../models/filtro_state.dart';
@@ -19,17 +22,23 @@ class CentroDoMapa extends StatefulWidget {
 
 class _CentroDoMapaState extends State<CentroDoMapa>
     with SingleTickerProviderStateMixin {
+
+  // Coordenada inicial de fallback
   final LatLng _posicaoInicial = const LatLng(-22.2528, -45.6976);
+  GoogleMapController? _mapController;
+
   final TextEditingController _buscaController = TextEditingController();
 
   String _modoMapaAtual = 'Normal';
 
-  // estilos do mapa carregados dos assets
+  String _tipoUsuarioAtual = 'estudante';
+  String _nomeUsuario = 'Usuário Hive';
+  String _emailUsuario = 'usuario@hive.com';
+
   String _estiloMapaEscuro = '';
   String _estiloMapaLimpo = '';
   String? _estiloAtivo;
 
-  // filtros
   final FiltroState _filtroState = FiltroState();
   final List<String> _todasTags = [
     'República', 'Apartamento', 'Kitnet', 'Suíte',
@@ -39,11 +48,11 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   Set<Marker> _marcadores = {};
   bool _buscaComTexto = false;
 
-  // listeners pra poder remover no dispose
+  List<Imovel> _imoveisDoBanco = [];
+
   late VoidCallback _temaListener;
   late VoidCallback _filtroListener;
 
-  // animacoes de entrada da barra de pesquisa
   late AnimationController _animIniciaisController;
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
@@ -51,7 +60,10 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   @override
   void initState() {
     super.initState();
+    _tipoUsuarioAtual = widget.tipoUsuario;
+    _carregarDadosUsuarioLogado();
     _carregarEstilosDoAsset();
+    _obterLocalizacaoReal(); // Dispara a busca do GPS ao iniciar
 
     _animIniciaisController = AnimationController(
       vsync: this,
@@ -63,6 +75,17 @@ class _CentroDoMapaState extends State<CentroDoMapa>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _animIniciaisController, curve: Curves.easeOutCubic));
     _animIniciaisController.forward();
+
+    FirebaseFirestore.instance.collection('imoveis').snapshots().listen((snapshot) {
+      if (mounted) {
+        setState(() {
+          _imoveisDoBanco = snapshot.docs
+              .map((doc) => Imovel.fromMap(doc.data(), doc.id))
+              .toList();
+        });
+        _atualizarMarcadoresFiltrados();
+      }
+    });
 
     _temaListener = () {
       if (mounted) {
@@ -81,8 +104,67 @@ class _CentroDoMapaState extends State<CentroDoMapa>
       setState(() => _buscaComTexto = _buscaController.text.isNotEmpty);
       _atualizarMarcadoresFiltrados();
     });
+  }
 
-    _atualizarMarcadoresFiltrados();
+  // Pede permissao e centraliza o mapa no GPS do usuario
+  Future<void> _obterLocalizacaoReal() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+
+    if (permission == LocationPermission.deniedForever) return;
+
+    Position position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high)
+    );
+
+    if (_mapController != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: LatLng(position.latitude, position.longitude),
+            zoom: 16.0,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _carregarDadosUsuarioLogado() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null && user.email != null) {
+        final emailFormatado = user.email!.toLowerCase().trim();
+
+        if (mounted) {
+          setState(() {
+            _emailUsuario = emailFormatado;
+          });
+        }
+
+        final query = await FirebaseFirestore.instance
+            .collection('usuarios')
+            .where('email', isEqualTo: emailFormatado)
+            .get();
+
+        if (query.docs.isNotEmpty) {
+          final data = query.docs.first.data();
+          if (mounted) {
+            setState(() {
+              _tipoUsuarioAtual = data['tipoUsuario'] ?? widget.tipoUsuario;
+              _nomeUsuario = data['nome'] ?? 'Usuário Hive';
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print("Erro ao carregar dados do usuário: $e");
+    }
   }
 
   @override
@@ -103,12 +185,13 @@ class _CentroDoMapaState extends State<CentroDoMapa>
 
   void _atualizarMarcadoresFiltrados() {
     final textoBusca = _buscaController.text.toLowerCase().trim();
-    final imovelFiltrados = todosOsImoveis.where((item) {
+
+    final imovelFiltrados = _imoveisDoBanco.where((item) {
       if (textoBusca.isNotEmpty) {
         final combinado = '${item.titulo} ${item.descricao}'.toLowerCase();
         if (!combinado.contains(textoBusca)) return false;
       }
-      if (item.tipo == TipoListing.evento) return true; // eventos sempre aparecem
+      if (item.tipo == TipoListing.evento) return true;
       if (item.preco > _filtroState.precoMaximo) return false;
       if (_filtroState.tagsSelecionadas.isNotEmpty) {
         final temTag = _filtroState.tagsSelecionadas
@@ -148,14 +231,14 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   }
 
   void _onMapCreated(GoogleMapController controller) {
+    _mapController = controller;
     _atualizarEstiloMapa();
+    _obterLocalizacaoReal();
   }
 
-  // abre o modal de filtros
   void _mostrarFiltros() {
     bool isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // estado temporario antes de aplicar
     double precoTemp = _filtroState.precoMaximo;
     List<String> tagsTemp = List.from(_filtroState.tagsSelecionadas);
 
@@ -178,7 +261,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // barrinha de arrastar
                   Center(
                     child: Container(
                       width: 40,
@@ -203,7 +285,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                       TextButton.icon(
                         onPressed: () {
                           setModalState(() {
-                            precoTemp = 3000; // reseta pro valor padrao
+                            precoTemp = 3000;
                             tagsTemp.clear();
                           });
                         },
@@ -214,7 +296,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                   ),
                   const SizedBox(height: 20),
 
-                  // slider de preco
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -274,7 +355,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                   ),
                   const SizedBox(height: 20),
 
-                  // tags de categoria
                   Text(
                     'Características do Imóvel',
                     style: AppTextStyles.captionBold.copyWith(
@@ -308,12 +388,12 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                             borderRadius: BorderRadius.circular(20),
                             boxShadow: selecionado
                                 ? [
-                                    BoxShadow(
-                                      color: corPrimaria.withAlpha(30),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ]
+                              BoxShadow(
+                                color: corPrimaria.withAlpha(30),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
                                 : [],
                           ),
                           child: Row(
@@ -376,7 +456,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     );
   }
 
-  // modal do perfil do usuario
   void _mostrarPerfil() {
     bool isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
@@ -402,14 +481,13 @@ class _CentroDoMapaState extends State<CentroDoMapa>
               ),
               const SizedBox(height: 24),
 
-              // avatar e nome do usuario
               Center(
                 child: Column(
                   children: [
                     Stack(
                       children: [
                         AvatarWidget(
-                          nome: 'Usuário Hive',
+                          nome: _nomeUsuario,
                           size: 72,
                           showOnlineIndicator: true,
                         ),
@@ -440,18 +518,18 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      widget.tipoUsuario == 'estudante'
-                          ? 'Estudante'
-                          : widget.tipoUsuario == 'proprietario'
-                              ? 'Proprietário'
-                              : 'Corretor',
+                      _tipoUsuarioAtual.toLowerCase() == 'proprietario'
+                          ? 'Proprietário'
+                          : _tipoUsuarioAtual.toLowerCase() == 'corretor'
+                          ? 'Corretor'
+                          : 'Estudante',
                       style: AppTextStyles.heading3.copyWith(
                         color: isDark ? Colors.white : Colors.black87,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'usuario@hive.com',
+                      _emailUsuario,
                       style: AppTextStyles.caption.copyWith(
                         color: isDark ? Colors.white38 : Colors.grey,
                       ),
@@ -463,7 +541,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
               Divider(color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20)),
               const SizedBox(height: 8),
 
-              // item de verificacao de cadastro
               Container(
                 decoration: BoxDecoration(
                   color: isDark ? Colors.white.withAlpha(5) : corSucesso.withAlpha(8),
@@ -506,7 +583,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     );
   }
 
-  // configuracoes do mapa e tema
   void _mostrarConfiguracoes() {
     bool isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
@@ -543,7 +619,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                   ),
                   const SizedBox(height: 24),
 
-                  // tema do sistema
                   Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
@@ -705,6 +780,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   Widget build(BuildContext context) {
     bool isDark = Theme.of(context).brightness == Brightness.dark;
     final double topOffset = MediaQuery.of(context).padding.top + 10;
+    final bool isProprietario = _tipoUsuarioAtual.toLowerCase() == 'proprietario';
 
     return Stack(
       children: [
@@ -712,13 +788,13 @@ class _CentroDoMapaState extends State<CentroDoMapa>
           onMapCreated: _onMapCreated,
           initialCameraPosition: CameraPosition(target: _posicaoInicial, zoom: 15.0),
           myLocationEnabled: true,
+          myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
           markers: _marcadores,
           mapType: _modoMapaAtual == 'Satélite' ? MapType.satellite : MapType.normal,
           style: _estiloAtivo,
         ),
 
-        // barra de pesquisa e controles
         Positioned(
           top: topOffset,
           left: 16,
@@ -730,12 +806,11 @@ class _CentroDoMapaState extends State<CentroDoMapa>
               child: Row(
                 children: [
                   _buildGlassButton(
-                    child: const AvatarWidget(nome: 'Usuário', size: 44),
+                    child: AvatarWidget(nome: _nomeUsuario, size: 44),
                     onTap: _mostrarPerfil,
                   ),
                   const SizedBox(width: 10),
 
-                  // campo de busca
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
@@ -769,18 +844,18 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                           prefixIcon: const Icon(Icons.search_rounded, color: corPrimaria, size: 22),
                           suffixIcon: _buscaComTexto
                               ? IconButton(
-                                  icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
-                                  onPressed: () => _buscaController.clear(),
-                                )
+                            icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
+                            onPressed: () => _buscaController.clear(),
+                          )
                               : IconButton(
-                                  icon: Badge(
-                                    isLabelVisible: _filtroState.temFiltrosAtivos,
-                                    smallSize: 8,
-                                    backgroundColor: corPrimaria,
-                                    child: const Icon(Icons.tune_rounded, color: corPrimaria, size: 22),
-                                  ),
-                                  onPressed: _mostrarFiltros,
-                                ),
+                            icon: Badge(
+                              isLabelVisible: _filtroState.temFiltrosAtivos,
+                              smallSize: 8,
+                              backgroundColor: corPrimaria,
+                              child: const Icon(Icons.tune_rounded, color: corPrimaria, size: 22),
+                            ),
+                            onPressed: _mostrarFiltros,
+                          ),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                         ),
                       ),
@@ -797,8 +872,20 @@ class _CentroDoMapaState extends State<CentroDoMapa>
           ),
         ),
 
-        // botao de anunciar (so aparece pro proprietario)
-        if (widget.tipoUsuario == 'proprietario')
+        // Botão de focar na localização do usuário
+        Positioned(
+          bottom: isProprietario ? 84 : 20, // Sobe se o botao de anunciar estiver visivel
+          right: 16,
+          child: FloatingActionButton(
+            heroTag: 'btnLocation',
+            mini: true,
+            backgroundColor: isDark ? corCardEscuro : Colors.white,
+            onPressed: _obterLocalizacaoReal,
+            child: Icon(Icons.my_location_rounded, color: isDark ? Colors.white : Colors.black87),
+          ),
+        ),
+
+        if (isProprietario)
           Positioned(
             bottom: 20,
             right: 16,
@@ -819,33 +906,9 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                 child: InkWell(
                   borderRadius: BorderRadius.circular(20),
                   onTap: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        backgroundColor: isDark ? corCardEscuro : Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                        title: Text(
-                          'Anunciar Imóvel',
-                          style: AppTextStyles.heading3.copyWith(
-                            color: isDark ? Colors.white : Colors.black87,
-                          ),
-                        ),
-                        content: Text(
-                          'Para registrar um novo imóvel e enviar para moderação, conclua sua validação cadastral no Perfil.',
-                          style: AppTextStyles.body.copyWith(
-                            color: isDark ? Colors.white60 : Colors.black54,
-                          ),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text(
-                              'Entendi',
-                              style: TextStyle(color: corPrimaria, fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ],
-                      ),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const NovoAnuncioScreen()),
                     );
                   },
                   child: const Padding(

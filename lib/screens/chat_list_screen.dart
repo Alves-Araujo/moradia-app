@@ -1,60 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
 import 'chat_detail_screen.dart';
-
-class _Conversa {
-  final String id;
-  final String nome;
-  final String ultimaMensagem;
-  final String horario;
-  final IconData avatar;
-  final bool naoLida;
-
-  const _Conversa({
-    required this.id,
-    required this.nome,
-    required this.ultimaMensagem,
-    required this.horario,
-    required this.avatar,
-    this.naoLida = false,
-  });
-}
+import '../models/imovel.dart';
 
 class TelaListaChats extends StatelessWidget {
   const TelaListaChats({super.key});
-
-  static const List<_Conversa> _conversas = [
-    _Conversa(
-      id: 'c1',
-      nome: 'República Byte House',
-      ultimaMensagem: 'Ainda tem vaga disponível?',
-      horario: '10:42',
-      avatar: Icons.house_rounded,
-      naoLida: true,
-    ),
-    _Conversa(
-      id: 'c2',
-      nome: 'Ana — Kitnet Boa Vista',
-      ultimaMensagem: 'Pode visitar sábado de manhã!',
-      horario: 'Ontem',
-      avatar: Icons.person_rounded,
-    ),
-    _Conversa(
-      id: 'c3',
-      nome: 'Carlos — Apt. Inatel',
-      ultimaMensagem: 'Enviei as fotos do quarto.',
-      horario: 'Seg',
-      avatar: Icons.person_rounded,
-      naoLida: true,
-    ),
-    _Conversa(
-      id: 'c4',
-      nome: 'Suporte Hive',
-      ultimaMensagem: 'Seu cadastro foi aprovado ✅',
-      horario: '15/08',
-      avatar: Icons.support_agent_rounded,
-    ),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -63,7 +14,6 @@ class TelaListaChats extends StatelessWidget {
 
     return Column(
       children: [
-        // header
         Container(
           padding: EdgeInsets.only(top: topPadding + 12, left: 20, right: 20, bottom: 16),
           decoration: BoxDecoration(
@@ -79,7 +29,7 @@ class TelaListaChats extends StatelessWidget {
           child: Row(
             children: [
               const Text(
-                'Conversas',
+                'Caixa de Entrada',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -0.5),
               ),
               const Spacer(),
@@ -91,118 +41,146 @@ class TelaListaChats extends StatelessWidget {
           ),
         ),
 
-        // lista de conversas
         Expanded(
-          child: _conversas.isEmpty
-              ? Center(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('imoveis').snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: corPrimaria));
+              }
+
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.chat_bubble_outline, size: 56, color: isDark ? Colors.white24 : Colors.grey.shade300),
                       const SizedBox(height: 12),
                       Text(
-                        'Nenhuma conversa ainda.',
+                        'Nenhuma conversa encontrada.',
                         style: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
                       ),
                     ],
                   ),
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: _conversas.length,
-                  separatorBuilder: (context, index) => Divider(
-                    height: 1,
-                    indent: 76,
-                    color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20),
-                  ),
-                  itemBuilder: (context, index) {
-                    final conversa = _conversas[index];
-                    return _ItemConversa(conversa: conversa, isDark: isDark);
-                  },
+                );
+              }
+
+              final imoveis = snapshot.data!.docs
+                  .map((doc) => Imovel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+                  .toList();
+
+              return ListView.separated(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: imoveis.length,
+                separatorBuilder: (context, index) => Divider(
+                  height: 1,
+                  indent: 76,
+                  color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20),
                 ),
+                itemBuilder: (context, index) {
+                  final imovel = imoveis[index];
+                  return _ItemConversaStream(imovel: imovel, isDark: isDark);
+                },
+              );
+            },
+          ),
         ),
       ],
     );
   }
 }
 
-class _ItemConversa extends StatelessWidget {
-  final _Conversa conversa;
+class _ItemConversaStream extends StatelessWidget {
+  final Imovel imovel;
   final bool isDark;
 
-  const _ItemConversa({required this.conversa, required this.isDark});
+  const _ItemConversaStream({required this.imovel, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      leading: Container(
-        width: 48,
-        height: 48,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(
-            colors: [corPrimaria, corPrimaria2],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+    // Escuta a subcoleção de mensagens para pegar a última mensagem em tempo real
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('chats')
+          .doc(imovel.id)
+          .collection('mensagens')
+          .orderBy('timestamp', descending: true)
+          .limit(1)
+          .snapshots(),
+      builder: (context, snapshot) {
+        String ultimaMensagem = 'Toque para iniciar a conversa.';
+        String horario = '';
+        bool temMensagem = false;
+
+        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+          final doc = snapshot.data!.docs.first;
+          final data = doc.data() as Map<String, dynamic>;
+          ultimaMensagem = data['texto'] ?? '';
+          temMensagem = true;
+
+          if (data['timestamp'] != null) {
+            final dt = (data['timestamp'] as Timestamp).toDate();
+            horario = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+          }
+        }
+
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+          leading: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              image: imovel.fotos.isNotEmpty
+                  ? DecorationImage(image: NetworkImage(imovel.fotos.first), fit: BoxFit.cover)
+                  : null,
+              gradient: imovel.fotos.isEmpty
+                  ? const LinearGradient(colors: [corPrimaria, corPrimaria2], begin: Alignment.topLeft, end: Alignment.bottomRight)
+                  : null,
+            ),
+            child: imovel.fotos.isEmpty
+                ? const Icon(Icons.home_rounded, color: Colors.white, size: 22)
+                : null,
           ),
-        ),
-        child: Icon(conversa.avatar, color: Colors.white, size: 22),
-      ),
-      title: Text(
-        conversa.nome,
-        style: TextStyle(
-          fontWeight: conversa.naoLida ? FontWeight.bold : FontWeight.w500,
-          fontSize: 15,
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        conversa.ultimaMensagem,
-        style: TextStyle(
-          fontSize: 13,
-          color: conversa.naoLida
-              ? (isDark ? Colors.white70 : Colors.black87)
-              : (isDark ? Colors.white38 : Colors.grey),
-          fontWeight: conversa.naoLida ? FontWeight.w500 : FontWeight.normal,
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            conversa.horario,
+          title: Text(
+            imovel.titulo,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            ultimaMensagem,
             style: TextStyle(
-              fontSize: 12,
-              color: conversa.naoLida ? corPrimaria : (isDark ? Colors.white38 : Colors.grey),
+              fontSize: 13,
+              color: temMensagem ? (isDark ? Colors.white70 : Colors.black87) : (isDark ? Colors.white38 : Colors.grey),
+              fontWeight: temMensagem ? FontWeight.w500 : FontWeight.normal,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-          if (conversa.naoLida) ...[
-            const SizedBox(height: 4),
-            Container(
-              width: 10,
-              height: 10,
-              decoration: const BoxDecoration(
-                color: corPrimaria,
-                shape: BoxShape.circle,
+          trailing: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (horario.isNotEmpty)
+                Text(
+                  horario,
+                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.grey),
+                ),
+            ],
+          ),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChatDetailScreen(
+                  anuncianteNome: imovel.titulo,
+                  imovelTitulo: 'Chat',
+                  imovelId: imovel.id,
+                ),
               ),
-            ),
-          ],
-        ],
-      ),
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => TelaChatDetalhe(
-              nomeContato: conversa.nome,
-              conversaId: conversa.id,
-            ),
-          ),
+            );
+          },
         );
       },
     );

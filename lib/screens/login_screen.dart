@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
 import '../widgets/animated_gradient_button.dart';
 import 'cadastro_screen.dart';
@@ -77,7 +78,7 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  // Funcao assincrona para realizar login real no Firebase
+  // Funcao assincrona para realizar login real no Firebase e buscar o tipo de usuário
   Future<void> _entrar() async {
     final email = _emailController.text.trim();
     final senha = _senhaController.text;
@@ -94,19 +95,34 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
     setState(() => _carregando = true);
 
     try {
-      // Tenta logar no Authentication
+      // 1. Autentica no Firebase Auth
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: senha,
       );
 
+      // 2. Busca o tipo de usuário correspondente no Firestore
+      String tipoUsuarioFinal = 'estudante'; // Padrão de segurança
+      try {
+        final query = await FirebaseFirestore.instance
+            .collection('usuarios')
+            .where('email', isEqualTo: email)
+            .get();
+
+        if (query.docs.isNotEmpty) {
+          tipoUsuarioFinal = query.docs.first.data()['tipoUsuario'] ?? 'estudante';
+        }
+      } catch (e) {
+        print("Erro ao buscar tipo de usuário: $e");
+      }
+
       if (!mounted) return;
 
-      // Se deu certo, navega pra tela principal
+      // 3. Navega pra tela principal levando o tipo correto do banco
       Navigator.pushAndRemoveUntil(
         context,
         PageRouteBuilder(
-          pageBuilder: (context, anim1, anim2) => const TelaPrincipal(tipoUsuario: 'estudante'),
+          pageBuilder: (context, anim1, anim2) => TelaPrincipal(tipoUsuario: tipoUsuarioFinal),
           transitionsBuilder: (context, anim1, anim2, child) {
             return FadeTransition(
               opacity: anim1,
@@ -123,7 +139,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
             (route) => false,
       );
     } on FirebaseAuthException catch (e) {
-      // Captura erros especificos do Firebase e traduz pra tela
       String msgErro = 'Erro ao fazer login.';
       if (e.code == 'user-not-found' || e.code == 'invalid-email') {
         msgErro = 'Nenhum usuário encontrado para esse e-mail.';
@@ -178,7 +193,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
     return Scaffold(
       body: Stack(
         children: [
-          // fundo com gradiente
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -190,8 +204,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
               ),
             ),
           ),
-
-          // orbes decorativos animados no fundo
           AnimatedBuilder(
             animation: _bgController,
             builder: (context, _) {
@@ -204,8 +216,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
               );
             },
           ),
-
-          // conteudo principal
           SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 28.0),
@@ -216,8 +226,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Spacer(flex: 1),
-
-                    // logo
                     _animarElemento(0, Center(
                       child: Container(
                         decoration: BoxDecoration(
@@ -235,8 +243,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
                       ),
                     )),
                     const SizedBox(height: 12),
-
-                    // subtitulo
                     _animarElemento(1, Column(
                       children: [
                         Text(
@@ -249,10 +255,7 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
                         ),
                       ],
                     )),
-
                     const SizedBox(height: 40),
-
-                    // campo email
                     _animarElemento(2, _buildTextField(
                       controller: _emailController,
                       label: 'Email',
@@ -261,8 +264,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
                       keyboardType: TextInputType.emailAddress,
                     )),
                     const SizedBox(height: 16),
-
-                    // campo senha
                     _animarElemento(3, _buildTextField(
                       controller: _senhaController,
                       label: 'Senha',
@@ -277,8 +278,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
                         onPressed: () => setState(() => _senhaVisivel = !_senhaVisivel),
                       ),
                     )),
-
-                    // esqueceu a senha
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
@@ -297,16 +296,12 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
                       ),
                     ),
                     const SizedBox(height: 8),
-
-                    // botao entrar
                     _animarElemento(4, AnimatedGradientButton(
                       label: 'Entrar',
                       isLoading: _carregando,
                       onTap: _entrar,
                     )),
                     const SizedBox(height: 24),
-
-                    // divisor "ou"
                     _animarElemento(5, Row(
                       children: [
                         Expanded(child: Divider(color: isDark ? Colors.white.withAlpha(20) : Colors.grey.shade300)),
@@ -325,8 +320,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
                       ],
                     )),
                     const SizedBox(height: 24),
-
-                    // botao criar conta
                     _animarElemento(5, SizedBox(
                       height: 56,
                       child: OutlinedButton(
@@ -366,7 +359,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
                         ),
                       ),
                     )),
-
                     const Spacer(flex: 3),
                   ],
                 ),
@@ -422,7 +414,6 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
   }
 }
 
-// painter dos orbes decorativos do fundo da tela de login
 class _OrbPainter extends CustomPainter {
   final double progress;
   final bool isDark;
@@ -433,7 +424,6 @@ class _OrbPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..style = PaintingStyle.fill;
 
-    // orbe 1 - grande, canto superior direito
     final orb1X = size.width * 0.8 + sin(progress * 2 * pi) * 30;
     final orb1Y = size.height * 0.15 + cos(progress * 2 * pi) * 20;
     paint.shader = RadialGradient(
@@ -444,7 +434,6 @@ class _OrbPainter extends CustomPainter {
     ).createShader(Rect.fromCircle(center: Offset(orb1X, orb1Y), radius: 160));
     canvas.drawCircle(Offset(orb1X, orb1Y), 160, paint);
 
-    // orbe 2 - medio, canto inferior esquerdo
     final orb2X = size.width * 0.2 + cos(progress * 2 * pi + 1) * 25;
     final orb2Y = size.height * 0.75 + sin(progress * 2 * pi + 1) * 30;
     paint.shader = RadialGradient(
@@ -455,7 +444,6 @@ class _OrbPainter extends CustomPainter {
     ).createShader(Rect.fromCircle(center: Offset(orb2X, orb2Y), radius: 130));
     canvas.drawCircle(Offset(orb2X, orb2Y), 130, paint);
 
-    // orbe 3 - pequeno, centro da tela
     final orb3X = size.width * 0.5 + sin(progress * 2 * pi + 2) * 20;
     final orb3Y = size.height * 0.45 + cos(progress * 2 * pi + 2) * 15;
     paint.shader = RadialGradient(
