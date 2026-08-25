@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "890336956924",
+    "project_id": "moradias-inatel",
+    "storage_bucket": "moradias-inatel.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:890336956924:android:36841d0e1c62cc0011e279",
+        "android_client_info": {
+          "package_name": "com.example.moradia_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDL0aaR1gdW-x3oiH4gxZVNMozISryp5CI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

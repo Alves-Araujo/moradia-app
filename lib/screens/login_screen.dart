@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../main.dart';
 import '../widgets/animated_gradient_button.dart';
 import 'cadastro_screen.dart';
@@ -76,7 +77,8 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _entrar() {
+  // Funcao assincrona para realizar login real no Firebase
+  Future<void> _entrar() async {
     final email = _emailController.text.trim();
     final senha = _senhaController.text;
 
@@ -90,8 +92,17 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
     }
 
     setState(() => _carregando = true);
-    Future.delayed(const Duration(milliseconds: 800), () {
+
+    try {
+      // Tenta logar no Authentication
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: senha,
+      );
+
       if (!mounted) return;
+
+      // Se deu certo, navega pra tela principal
       Navigator.pushAndRemoveUntil(
         context,
         PageRouteBuilder(
@@ -109,9 +120,26 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
           },
           transitionDuration: const Duration(milliseconds: 400),
         ),
-        (route) => false,
+            (route) => false,
       );
-    });
+    } on FirebaseAuthException catch (e) {
+      // Captura erros especificos do Firebase e traduz pra tela
+      String msgErro = 'Erro ao fazer login.';
+      if (e.code == 'user-not-found' || e.code == 'invalid-email') {
+        msgErro = 'Nenhum usuário encontrado para esse e-mail.';
+      } else if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+        msgErro = 'E-mail ou senha incorretos.';
+      } else if (e.code == 'user-disabled') {
+        msgErro = 'Essa conta foi desativada.';
+      }
+      _mostrarErro(msgErro);
+    } catch (e) {
+      _mostrarErro('Ocorreu um erro inesperado.');
+    } finally {
+      if (mounted) {
+        setState(() => _carregando = false);
+      }
+    }
   }
 
   void _mostrarErro(String msg) {

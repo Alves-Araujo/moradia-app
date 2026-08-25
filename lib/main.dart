@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+// imports do firebase
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+
 import 'screens/login_screen.dart';
 import 'screens/map_screen.dart';
 import 'screens/resumo_screen.dart';
@@ -101,7 +106,14 @@ class AppTextStyles {
   );
 }
 
-void main() {
+// inicializa o firebase antes de rodar o app
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(const MeuAppEstudantil());
 }
 
@@ -290,17 +302,17 @@ class _TelaPrincipalState extends State<TelaPrincipal>
               curve: Curves.easeOutCubic,
               child: isSelected
                   ? Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Text(
-                        label,
-                        style: const TextStyle(
-                          color: corPrimaria,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    )
+                padding: const EdgeInsets.only(left: 8),
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: corPrimaria,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              )
                   : const SizedBox.shrink(),
             ),
           ],

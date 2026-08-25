@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
 import '../widgets/animated_gradient_button.dart';
 
@@ -98,7 +100,8 @@ class _TelaCadastroState extends State<TelaCadastro>
     return 'Muito forte';
   }
 
-  void _cadastrar() {
+  // Funcao assincrona para realizar cadastro no Firebase Auth e salvar no Firestore
+  Future<void> _cadastrar() async {
     final nome = _nomeController.text.trim();
     final email = _emailController.text.trim();
     final senha = _senhaController.text;
@@ -126,8 +129,27 @@ class _TelaCadastroState extends State<TelaCadastro>
     }
 
     setState(() => _carregando = true);
-    Future.delayed(const Duration(milliseconds: 800), () {
+
+    try {
+      // 1. Cria a conta no Authentication
+      final credencial = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: senha,
+      );
+
+      // 2. Salva os dados complementares no Firestore usando o UID gerado
+      if (credencial.user != null) {
+        await FirebaseFirestore.instance.collection('usuarios').doc(credencial.user!.uid).set({
+          'nome': nome,
+          'email': email,
+          'tipoUsuario': _tipoUsuarioSelecionado,
+          'dataCriacao': FieldValue.serverTimestamp(), // Pega a hora exata do servidor
+        });
+      }
+
       if (!mounted) return;
+
+      // 3. Se deu tudo certo, vai para a tela principal
       Navigator.pushAndRemoveUntil(
         context,
         PageRouteBuilder(
@@ -145,9 +167,26 @@ class _TelaCadastroState extends State<TelaCadastro>
           },
           transitionDuration: const Duration(milliseconds: 400),
         ),
-        (Route<dynamic> route) => false,
+            (Route<dynamic> route) => false,
       );
-    });
+    } on FirebaseAuthException catch (e) {
+      // Captura erros de cadastro do Firebase
+      String msgErro = 'Erro ao criar conta.';
+      if (e.code == 'weak-password') {
+        msgErro = 'A senha fornecida é muito fraca.';
+      } else if (e.code == 'email-already-in-use') {
+        msgErro = 'Já existe uma conta cadastrada com este e-mail.';
+      } else if (e.code == 'invalid-email') {
+        msgErro = 'O formato do e-mail é inválido.';
+      }
+      _mostrarErro(msgErro);
+    } catch (e) {
+      _mostrarErro('Ocorreu um erro inesperado.');
+    } finally {
+      if (mounted) {
+        setState(() => _carregando = false);
+      }
+    }
   }
 
   void _mostrarErro(String msg) {
