@@ -54,4 +54,9 @@ class UsuarioService {
   Future<void> completarPerfil(Usuario usuario) {
     return _colecao.doc(usuario.uid).update(usuario.toMap());
   }
+
+  // marca "visto por ultimo agora" -- usado pro indicador de atividade
+  Future<void> atualizarUltimoAcesso(String uid) {
+    return _colecao.doc(uid).update({'ultimoAcesso': FieldValue.serverTimestamp()});
+  }
 }

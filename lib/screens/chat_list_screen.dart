@@ -174,9 +174,9 @@ class _ItemConversaStream extends StatelessWidget {
               context,
               MaterialPageRoute(
                 builder: (_) => ChatDetailScreen(
-                  anuncianteNome: imovel.titulo,
-                  imovelTitulo: 'Chat',
+                  imovelTitulo: imovel.titulo,
                   imovelId: imovel.id,
+                  donoUid: imovel.donoUid,
                 ),
               ),
             );

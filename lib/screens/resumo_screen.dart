@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
 import '../models/imovel.dart';
 import '../models/usuario.dart';
+import '../services/usuario_service.dart';
+import '../utils/tempo.dart';
 import '../widgets/animated_gradient_button.dart';
 import 'chat_detail_screen.dart';
 
@@ -577,6 +579,28 @@ class _DetalheImovel extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (imovel.donoUid.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  FutureBuilder<Usuario?>(
+                    future: UsuarioService.instance.buscarPorUid(imovel.donoUid),
+                    builder: (context, snapshot) {
+                      final dono = snapshot.data;
+                      if (dono == null) return const SizedBox.shrink();
+                      return Row(
+                        children: [
+                          Icon(Icons.circle, size: 8, color: corSucesso.withAlpha(180)),
+                          const SizedBox(width: 6),
+                          Text(
+                            formatarUltimoAcesso(dono.ultimoAcesso),
+                            style: AppTextStyles.caption.copyWith(
+                              color: isDark ? Colors.white38 : Colors.grey,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
                 const SizedBox(height: 20),
                 Divider(color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20)),
                 const SizedBox(height: 16),
@@ -655,9 +679,9 @@ class _DetalheImovel extends StatelessWidget {
                         context,
                         MaterialPageRoute(
                           builder: (context) => ChatDetailScreen(
-                            anuncianteNome: 'Proprietário',
                             imovelTitulo: imovel.titulo,
                             imovelId: imovel.id,
+                            donoUid: imovel.donoUid,
                           ),
                         ),
                       );

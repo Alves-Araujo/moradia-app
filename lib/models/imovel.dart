@@ -3,12 +3,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum TipoListing { moradia, evento }
 
-// lista unica de tags, usada tanto na criacao do anuncio quanto nos filtros do mapa
-const List<String> tagsDisponiveis = [
-  'República', 'Apartamento', 'Kitnet', 'Suíte',
-  'Mobiliado', 'Perto da Facul', 'Garagem', 'Com Wi-Fi',
-  'Exclusivo para Mulheres',
-];
+// tipos especificos de moradia (campo "Tipo" do anuncio)
+const List<String> tiposImovelDisponiveis = ['Casa', 'Apartamento', 'República', 'Pensão', 'Kitnet'];
+
+// tags organizadas por categoria, usadas na criacao do anuncio e nos filtros do mapa
+const List<String> tagsPositivas = ['Mobiliado', 'Garagem', 'Com Wi-Fi', 'Suíte', 'Perto da Facul'];
+const List<String> tagsNegativas = ['Sem elevador'];
+const List<String> tagsPreferenciaGenero = ['Exclusivo para Mulheres', 'Exclusivo para Homens'];
+
+const List<String> tagsDisponiveis = [...tagsPositivas, ...tagsNegativas, ...tagsPreferenciaGenero];
 
 class Imovel {
   final String id;
@@ -22,6 +25,16 @@ class Imovel {
   final List<String> fotos;
   final String donoUid;
 
+  // campos do novo fluxo de cadastro (so preenchidos quando tipo == moradia)
+  final String tipoImovel;
+  final String andar;
+  final String comprovanteResidenciaUrl;
+  final double iptuValor;
+  final String iptuComprovanteUrl;
+  final bool incluiLuz;
+  final bool incluiAgua;
+  final bool incluiWifi;
+
   Imovel({
     required this.id,
     required this.titulo,
@@ -33,6 +46,14 @@ class Imovel {
     required this.endereco,
     this.fotos = const [],
     this.donoUid = '',
+    this.tipoImovel = '',
+    this.andar = '',
+    this.comprovanteResidenciaUrl = '',
+    this.iptuValor = 0,
+    this.iptuComprovanteUrl = '',
+    this.incluiLuz = false,
+    this.incluiAgua = false,
+    this.incluiWifi = false,
   });
 
   factory Imovel.fromMap(Map<String, dynamic> map, String docId) {
@@ -62,6 +83,14 @@ class Imovel {
       endereco: map['endereco'] ?? '',
       fotos: List<String>.from(map['fotos'] ?? []),
       donoUid: map['donoUid'] ?? '',
+      tipoImovel: map['tipoImovel'] ?? '',
+      andar: map['andar'] ?? '',
+      comprovanteResidenciaUrl: map['comprovanteResidenciaUrl'] ?? '',
+      iptuValor: (map['iptuValor'] ?? 0.0).toDouble(),
+      iptuComprovanteUrl: map['iptuComprovanteUrl'] ?? '',
+      incluiLuz: map['incluiLuz'] ?? false,
+      incluiAgua: map['incluiAgua'] ?? false,
+      incluiWifi: map['incluiWifi'] ?? false,
     );
   }
 
@@ -76,6 +105,14 @@ class Imovel {
       'endereco': endereco,
       'fotos': fotos,
       'donoUid': donoUid,
+      'tipoImovel': tipoImovel,
+      'andar': andar,
+      'comprovanteResidenciaUrl': comprovanteResidenciaUrl,
+      'iptuValor': iptuValor,
+      'iptuComprovanteUrl': iptuComprovanteUrl,
+      'incluiLuz': incluiLuz,
+      'incluiAgua': incluiAgua,
+      'incluiWifi': incluiWifi,
     };
   }
 }

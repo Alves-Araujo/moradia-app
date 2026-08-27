@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show VoidCallback;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -51,5 +52,36 @@ class AuthService {
 
   Future<void> enviarEmailDeVerificacao() async {
     await _auth.currentUser?.sendEmailVerification();
+  }
+
+  // manda o SMS com o codigo -- verificationCompleted so dispara sozinho em
+  // alguns aparelhos Android (auto-retrieval), o normal e esperar o codigo
+  // chegar e confirmar na mao com confirmarCodigoTelefone
+  Future<void> verificarTelefone({
+    required String numeroCompleto,
+    required void Function(String verificationId) aoCodigoEnviado,
+    required void Function(String erro) aoFalhar,
+    required VoidCallback aoVerificarAutomaticamente,
+  }) async {
+    await _auth.verifyPhoneNumber(
+      phoneNumber: numeroCompleto,
+      verificationCompleted: (credential) async {
+        try {
+          await _auth.currentUser?.linkWithCredential(credential);
+          aoVerificarAutomaticamente();
+        } catch (e) {
+          aoFalhar('Erro ao confirmar automaticamente: $e');
+        }
+      },
+      verificationFailed: (e) => aoFalhar(e.message ?? 'Não foi possível enviar o código.'),
+      codeSent: (verificationId, resendToken) => aoCodigoEnviado(verificationId),
+      codeAutoRetrievalTimeout: (verificationId) {},
+    );
+  }
+
+  // liga o numero verificado a conta ja logada (nao troca de usuario)
+  Future<void> confirmarCodigoTelefone(String verificationId, String smsCode) async {
+    final credential = PhoneAuthProvider.credential(verificationId: verificationId, smsCode: smsCode);
+    await _auth.currentUser?.linkWithCredential(credential);
   }
 }

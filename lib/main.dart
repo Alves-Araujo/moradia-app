@@ -10,6 +10,7 @@ import 'firebase_options.dart';
 import 'models/usuario.dart';
 import 'screens/auth_gate.dart';
 import 'screens/map_screen.dart';
+import 'screens/painel_screen.dart';
 import 'screens/resumo_screen.dart';
 import 'screens/chat_list_screen.dart';
 
@@ -210,7 +211,12 @@ class _TelaPrincipalState extends State<TelaPrincipal>
     with SingleTickerProviderStateMixin {
   int _indiceAtual = 0;
   late final List<Widget> _telas;
+  late final List<_ItemNav> _itensNav;
   late AnimationController _navAnimController;
+
+  // painel de imoveis so aparece pra quem pode anunciar (proprietario/corretor)
+  bool get _temPainel =>
+      widget.perfil.tipoUsuario == 'proprietario' || widget.perfil.tipoUsuario == 'corretor';
 
   @override
   void initState() {
@@ -219,6 +225,14 @@ class _TelaPrincipalState extends State<TelaPrincipal>
       CentroDoMapa(perfil: widget.perfil),
       TelaResumo(perfil: widget.perfil),
       const TelaListaChats(),
+      if (_temPainel) PainelScreen(perfil: widget.perfil),
+    ];
+    _itensNav = [
+      const _ItemNav(icon: Icons.map_outlined, activeIcon: Icons.map_rounded, label: 'Mapa'),
+      const _ItemNav(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Resumo'),
+      const _ItemNav(icon: Icons.chat_bubble_outline_rounded, activeIcon: Icons.chat_bubble_rounded, label: 'Chat'),
+      if (_temPainel)
+        const _ItemNav(icon: Icons.dashboard_outlined, activeIcon: Icons.dashboard_rounded, label: 'Painel'),
     ];
     _navAnimController = AnimationController(
       vsync: this,
@@ -270,9 +284,8 @@ class _TelaPrincipalState extends State<TelaPrincipal>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildNavItem(0, Icons.map_outlined, Icons.map_rounded, 'Mapa', isDark),
-                _buildNavItem(1, Icons.home_outlined, Icons.home_rounded, 'Resumo', isDark),
-                _buildNavItem(2, Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded, 'Chat', isDark),
+                for (var i = 0; i < _itensNav.length; i++)
+                  _buildNavItem(i, _itensNav[i].icon, _itensNav[i].activeIcon, _itensNav[i].label, isDark),
               ],
             ),
           ),
@@ -333,4 +346,11 @@ class _TelaPrincipalState extends State<TelaPrincipal>
       ),
     );
   }
+}
+
+class _ItemNav {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  const _ItemNav({required this.icon, required this.activeIcon, required this.label});
 }

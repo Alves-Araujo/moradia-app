@@ -20,6 +20,11 @@ Future<Usuario> _perfilOuCriar(User user) async {
   return Usuario(uid: user.uid, nome: nome, email: email);
 }
 
+// atualiza o "ultimo acesso" sem travar a navegacao (indicador de atividade)
+void _registrarAcesso(String uid) {
+  UsuarioService.instance.atualizarUltimoAcesso(uid);
+}
+
 // decide qual tela mostrar de acordo com o estado de login. e por causa dela
 // que o app agora lembra a sessao -- antes sempre abria direto na tela de
 // login, mesmo com o firebase ja mantendo o usuario logado
@@ -47,6 +52,7 @@ class AuthGate extends StatelessWidget {
             if (perfilSnap.connectionState == ConnectionState.waiting || !perfilSnap.hasData) {
               return const _TelaCarregando();
             }
+            _registrarAcesso(user.uid);
             return TelaPrincipal(perfil: perfilSnap.data!);
           },
         );
