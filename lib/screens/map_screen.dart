@@ -23,7 +23,7 @@ class CentroDoMapa extends StatefulWidget {
 class _CentroDoMapaState extends State<CentroDoMapa>
     with SingleTickerProviderStateMixin {
 
-  // Coordenada inicial de fallback
+  // coordenada de fallback caso o gps nao responda
   final LatLng _posicaoInicial = const LatLng(-22.2528, -45.6976);
   GoogleMapController? _mapController;
 
@@ -63,7 +63,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     _tipoUsuarioAtual = widget.tipoUsuario;
     _carregarDadosUsuarioLogado();
     _carregarEstilosDoAsset();
-    _obterLocalizacaoReal(); // Dispara a busca do GPS ao iniciar
+    _obterLocalizacaoReal(); // ja dispara a busca do gps ao abrir a tela
 
     _animIniciaisController = AnimationController(
       vsync: this,
@@ -106,7 +106,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     });
   }
 
-  // Pede permissao e centraliza o mapa no GPS do usuario
+  // pede permissao de localizacao e centraliza o mapa no gps
   Future<void> _obterLocalizacaoReal() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
@@ -163,7 +163,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
         }
       }
     } catch (e) {
-      print("Erro ao carregar dados do usuário: $e");
+      debugPrint("Erro ao carregar dados do usuário: $e");
     }
   }
 
@@ -872,7 +872,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
           ),
         ),
 
-        // Botão de focar na localização do usuário
+        // botao pra focar na localizacao do usuario
         Positioned(
           bottom: isProprietario ? 84 : 20, // Sobe se o botao de anunciar estiver visivel
           right: 16,

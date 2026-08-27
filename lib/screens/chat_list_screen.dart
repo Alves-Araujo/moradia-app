@@ -98,7 +98,7 @@ class _ItemConversaStream extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Escuta a subcoleção de mensagens para pegar a última mensagem em tempo real
+    // escuta a ultima mensagem da subcolecao em tempo real
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('chats')

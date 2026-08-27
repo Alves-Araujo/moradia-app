@@ -22,7 +22,7 @@ class ChatDetailScreen extends StatefulWidget {
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final TextEditingController _mensagemController = TextEditingController();
 
-  // Envia a mensagem para a subcolecao do Firestore correspondente ao imovel
+  // manda a mensagem pra subcolecao do imovel no firestore
   void _enviarMensagem() async {
     final texto = _mensagemController.text.trim();
     if (texto.isEmpty) return;

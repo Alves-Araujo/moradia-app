@@ -78,7 +78,7 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  // Funcao assincrona para realizar login real no Firebase e buscar o tipo de usuário
+  // login de verdade no firebase e busca o tipo do usuario
   Future<void> _entrar() async {
     final email = _emailController.text.trim();
     final senha = _senhaController.text;
@@ -95,13 +95,13 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
     setState(() => _carregando = true);
 
     try {
-      // 1. Autentica no Firebase Auth
+      // autentica no firebase
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: senha,
       );
 
-      // 2. Busca o tipo de usuário correspondente no Firestore
+      // busca o tipo do usuario no firestore
       String tipoUsuarioFinal = 'estudante'; // Padrão de segurança
       try {
         final query = await FirebaseFirestore.instance
@@ -113,12 +113,12 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
           tipoUsuarioFinal = query.docs.first.data()['tipoUsuario'] ?? 'estudante';
         }
       } catch (e) {
-        print("Erro ao buscar tipo de usuário: $e");
+        debugPrint("Erro ao buscar tipo de usuário: $e");
       }
 
       if (!mounted) return;
 
-      // 3. Navega pra tela principal levando o tipo correto do banco
+      // vai pra tela principal ja com o tipo certo
       Navigator.pushAndRemoveUntil(
         context,
         PageRouteBuilder(

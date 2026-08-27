@@ -311,7 +311,7 @@ class _CardImovel extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // Renderização da Capa (Foto ou Ícone)
+                // capa do card (foto ou icone)
                 Container(
                   width: 64,
                   height: 64,
@@ -494,7 +494,7 @@ class _DetalheImovel extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
-          // Carrossel de Fotos se houver imagens
+          // carrossel de fotos, se tiver
           if (imovel.fotos.isNotEmpty)
             SizedBox(
               height: 220,
@@ -525,7 +525,7 @@ class _DetalheImovel extends StatelessWidget {
               ),
             )
           else
-          // Header antigo (cai aqui se não tiver foto)
+          // sem foto? cai nesse header simples
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(

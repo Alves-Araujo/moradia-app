@@ -37,7 +37,7 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
     'Mobiliado', 'Perto da Facul', 'Garagem', 'Com Wi-Fi'
   ];
 
-  // Abre a galeria nativa para selecao de multiplas imagens
+  // abre a galeria pra escolher varias fotos de uma vez
   Future<void> _escolherImagens() async {
     try {
       final List<XFile> imagens = await _picker.pickMultiImage(
@@ -49,20 +49,21 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
         });
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erro ao selecionar imagens: $e'), backgroundColor: corErro),
       );
     }
   }
 
-  // Remove uma imagem da lista de pre-visualizacao pelo indice
+  // tira a foto da lista de preview
   void _removerImagem(int index) {
     setState(() {
       _imagensSelecionadas.removeAt(index);
     });
   }
 
-  // Realiza o upload das imagens via POST para a API do ImgBB e extrai as URLs
+  // sobe as fotos pro imgbb e pega as urls de volta
   Future<List<String>> _fazerUploadDasImagens() async {
     List<String> urls = [];
     const String apiKey = 'e40e46c0ec8806fc210a96e82842971b';
@@ -91,7 +92,7 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
     return urls;
   }
 
-  // Valida o formulario, traduz o endereco, faz upload das midias e salva o documento
+  // valida o form, geocodifica o endereco, sobe as fotos e salva no firestore
   Future<void> _salvarAnuncio() async {
     if (!_formKey.currentState!.validate()) return;
     if (_imagensSelecionadas.isEmpty) {
@@ -108,7 +109,7 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
       double lat = -22.2528;
       double lng = -45.6976;
 
-      // Traducao do endereco em coordenadas geograficas (Geocoding 5.0.0+)
+      // transforma o endereco digitado em lat/lng
       try {
         final geocoding = Geocoding();
         List<Location> locations = await geocoding.locationFromAddress(enderecoFormatado);
@@ -117,7 +118,7 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
           lng = locations.first.longitude;
         }
       } catch (e) {
-        print("Geocoding falhou, utilizando coordenadas de fallback. Erro: $e");
+        debugPrint("Geocoding falhou, usando coordenada de fallback: $e");
       }
 
       final docRef = FirebaseFirestore.instance.collection('imoveis').doc();
@@ -281,27 +282,27 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
                 ),
               const SizedBox(height: 24),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: RadioListTile<TipoListing>(
-                      title: const Text('Moradia'),
-                      value: TipoListing.moradia,
-                      groupValue: _tipoSelecionado,
-                      activeColor: corPrimaria,
-                      onChanged: (val) => setState(() => _tipoSelecionado = val!),
+              RadioGroup<TipoListing>(
+                groupValue: _tipoSelecionado,
+                onChanged: (val) => setState(() => _tipoSelecionado = val!),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: RadioListTile<TipoListing>(
+                        title: const Text('Moradia'),
+                        value: TipoListing.moradia,
+                        activeColor: corPrimaria,
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: RadioListTile<TipoListing>(
-                      title: const Text('Evento'),
-                      value: TipoListing.evento,
-                      groupValue: _tipoSelecionado,
-                      activeColor: corAtencao,
-                      onChanged: (val) => setState(() => _tipoSelecionado = val!),
+                    Expanded(
+                      child: RadioListTile<TipoListing>(
+                        title: const Text('Evento'),
+                        value: TipoListing.evento,
+                        activeColor: corAtencao,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: 20),
 

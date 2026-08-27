@@ -100,7 +100,7 @@ class _TelaCadastroState extends State<TelaCadastro>
     return 'Muito forte';
   }
 
-  // Funcao assincrona para realizar cadastro no Firebase Auth e salvar no Firestore
+  // cria a conta no firebase e salva os dados extras no firestore
   Future<void> _cadastrar() async {
     final nome = _nomeController.text.trim();
     final email = _emailController.text.trim();
@@ -131,13 +131,13 @@ class _TelaCadastroState extends State<TelaCadastro>
     setState(() => _carregando = true);
 
     try {
-      // 1. Cria a conta no Authentication
+      // cria a conta no authentication
       final credencial = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: email,
         password: senha,
       );
 
-      // 2. Salva os dados complementares no Firestore usando o UID gerado
+      // salva o resto dos dados no firestore usando o uid
       if (credencial.user != null) {
         await FirebaseFirestore.instance.collection('usuarios').doc(credencial.user!.uid).set({
           'nome': nome,
@@ -149,7 +149,7 @@ class _TelaCadastroState extends State<TelaCadastro>
 
       if (!mounted) return;
 
-      // 3. Se deu tudo certo, vai para a tela principal
+      // deu certo, entao vai pra tela principal
       Navigator.pushAndRemoveUntil(
         context,
         PageRouteBuilder(
@@ -170,7 +170,7 @@ class _TelaCadastroState extends State<TelaCadastro>
             (Route<dynamic> route) => false,
       );
     } on FirebaseAuthException catch (e) {
-      // Captura erros de cadastro do Firebase
+      // erros comuns do firebase na hora de cadastrar
       String msgErro = 'Erro ao criar conta.';
       if (e.code == 'weak-password') {
         msgErro = 'A senha fornecida é muito fraca.';
