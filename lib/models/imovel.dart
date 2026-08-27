@@ -3,6 +3,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum TipoListing { moradia, evento }
 
+// lista unica de tags, usada tanto na criacao do anuncio quanto nos filtros do mapa
+const List<String> tagsDisponiveis = [
+  'República', 'Apartamento', 'Kitnet', 'Suíte',
+  'Mobiliado', 'Perto da Facul', 'Garagem', 'Com Wi-Fi',
+  'Exclusivo para Mulheres',
+];
+
 class Imovel {
   final String id;
   final String titulo;
@@ -13,6 +20,7 @@ class Imovel {
   final List<String> tags;
   final String endereco;
   final List<String> fotos;
+  final String donoUid;
 
   Imovel({
     required this.id,
@@ -24,6 +32,7 @@ class Imovel {
     required this.tags,
     required this.endereco,
     this.fotos = const [],
+    this.donoUid = '',
   });
 
   factory Imovel.fromMap(Map<String, dynamic> map, String docId) {
@@ -52,6 +61,7 @@ class Imovel {
       tags: List<String>.from(map['tags'] ?? []),
       endereco: map['endereco'] ?? '',
       fotos: List<String>.from(map['fotos'] ?? []),
+      donoUid: map['donoUid'] ?? '',
     );
   }
 
@@ -65,6 +75,7 @@ class Imovel {
       'tags': tags,
       'endereco': endereco,
       'fotos': fotos,
+      'donoUid': donoUid,
     };
   }
 }

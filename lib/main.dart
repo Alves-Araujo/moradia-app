@@ -1,18 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 // imports do firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
-import 'screens/login_screen.dart';
+import 'models/usuario.dart';
+import 'screens/auth_gate.dart';
 import 'screens/map_screen.dart';
 import 'screens/resumo_screen.dart';
 import 'screens/chat_list_screen.dart';
 
 // controle do tema do app inteiro
 final ValueNotifier<ThemeMode> temaGlobal = ValueNotifier(ThemeMode.system);
+
+// posicao do inatel, usada como centro padrao do mapa e destino da rota
+const LatLng posicaoInatel = LatLng(-22.2528, -45.6976);
+
+// mesma chave que ja esta no AndroidManifest.xml, usada aqui pra chamar a Directions API
+const String googleMapsApiKey = 'AIzaSyCDSwKb86bQTu7rwcwzW0r1oRZY9U-RNrQ';
+
+// credenciais do ZegoCloud (chamadas de voz/video no chat) -- crie uma conta
+// gratis em zegocloud.com e cole o AppID/AppSign do seu projeto aqui
+const int zegoAppId = 0;
+const String zegoAppSign = 'COLOQUE_AQUI_O_APPSIGN_DO_ZEGOCLOUD';
 
 // cores principais
 const corPrimaria = Color(0xFF00509E);
@@ -178,7 +191,7 @@ class MeuAppEstudantil extends StatelessWidget {
               ),
             ),
           ),
-          home: const TelaLogin(),
+          home: const AuthGate(),
         );
       },
     );
@@ -186,8 +199,8 @@ class MeuAppEstudantil extends StatelessWidget {
 }
 
 class TelaPrincipal extends StatefulWidget {
-  final String tipoUsuario;
-  const TelaPrincipal({super.key, required this.tipoUsuario});
+  final Usuario perfil;
+  const TelaPrincipal({super.key, required this.perfil});
 
   @override
   State<TelaPrincipal> createState() => _TelaPrincipalState();
@@ -203,8 +216,8 @@ class _TelaPrincipalState extends State<TelaPrincipal>
   void initState() {
     super.initState();
     _telas = [
-      CentroDoMapa(tipoUsuario: widget.tipoUsuario),
-      TelaResumo(tipoUsuario: widget.tipoUsuario),
+      CentroDoMapa(perfil: widget.perfil),
+      TelaResumo(perfil: widget.perfil),
       const TelaListaChats(),
     ];
     _navAnimController = AnimationController(

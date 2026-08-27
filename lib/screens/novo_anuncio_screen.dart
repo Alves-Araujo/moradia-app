@@ -1,12 +1,12 @@
 import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:http/http.dart' as http;
 import '../models/imovel.dart';
+import '../services/imgbb_service.dart';
 import '../widgets/animated_gradient_button.dart';
 import '../main.dart';
 
@@ -32,11 +32,6 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
   final List<XFile> _imagensSelecionadas = [];
   final ImagePicker _picker = ImagePicker();
 
-  final List<String> _todasTags = [
-    'República', 'Apartamento', 'Kitnet', 'Suíte',
-    'Mobiliado', 'Perto da Facul', 'Garagem', 'Com Wi-Fi'
-  ];
-
   // abre a galeria pra escolher varias fotos de uma vez
   Future<void> _escolherImagens() async {
     try {
@@ -61,35 +56,6 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
     setState(() {
       _imagensSelecionadas.removeAt(index);
     });
-  }
-
-  // sobe as fotos pro imgbb e pega as urls de volta
-  Future<List<String>> _fazerUploadDasImagens() async {
-    List<String> urls = [];
-    const String apiKey = 'e40e46c0ec8806fc210a96e82842971b';
-    final Uri apiUrl = Uri.parse('https://api.imgbb.com/1/upload?key=$apiKey');
-
-    for (var i = 0; i < _imagensSelecionadas.length; i++) {
-      try {
-        final request = http.MultipartRequest('POST', apiUrl);
-        request.files.add(
-            await http.MultipartFile.fromPath('image', _imagensSelecionadas[i].path)
-        );
-
-        final response = await request.send();
-
-        if (response.statusCode == 200) {
-          final responseData = await response.stream.bytesToString();
-          final jsonMap = json.decode(responseData);
-          urls.add(jsonMap['data']['url']);
-        } else {
-          throw Exception('Erro na API ImgBB: HTTP ${response.statusCode}');
-        }
-      } catch (e) {
-        throw Exception('Falha ao processar a foto ${i + 1}. Detalhes: $e');
-      }
-    }
-    return urls;
   }
 
   // valida o form, geocodifica o endereco, sobe as fotos e salva no firestore
@@ -123,7 +89,7 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
 
       final docRef = FirebaseFirestore.instance.collection('imoveis').doc();
 
-      final urlsImagens = await _fazerUploadDasImagens();
+      final urlsImagens = await ImgbbService.instance.enviarImagens(_imagensSelecionadas);
 
       final novoImovel = Imovel(
         id: docRef.id,
@@ -135,6 +101,7 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
         tags: _tagsSelecionadas,
         endereco: enderecoFormatado,
         fotos: urlsImagens,
+        donoUid: FirebaseAuth.instance.currentUser?.uid ?? '',
       );
 
       final dadosImovel = novoImovel.toMap();
@@ -354,7 +321,7 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: _todasTags.map((tag) {
+                children: tagsDisponiveis.map((tag) {
                   final selecionado = _tagsSelecionadas.contains(tag);
                   return FilterChip(
                     label: Text(tag),

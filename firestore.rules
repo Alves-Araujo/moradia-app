@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // perfil do usuario -- so o dono le e escreve o proprio
+    match /usuarios/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    function perfilCompleto() {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.perfilCompleto == true;
+    }
+
+    // anuncios (moradias/eventos) -- qualquer logado le, mas so quem completou
+    // o perfil pode criar, e so o dono edita/apaga o seu
+    match /imoveis/{imovelId} {
+      allow read: if request.auth != null;
+      allow create: if perfilCompleto()
+                    && request.resource.data.donoUid == request.auth.uid;
+      allow update, delete: if request.auth != null
+                             && resource.data.donoUid == request.auth.uid;
+    }
+
+    // chat -- qualquer logado pode ler, mas so quem completou o perfil manda mensagem
+    match /chats/{imovelId}/mensagens/{mensagemId} {
+      allow read: if request.auth != null;
+      allow create: if perfilCompleto();
+    }
+
+    // estrutura pronta pras monitorias futuras
+    match /monitorias/{monitoriaId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

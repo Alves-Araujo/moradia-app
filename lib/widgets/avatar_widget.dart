@@ -9,6 +9,7 @@ class AvatarWidget extends StatelessWidget {
   final IconData? iconOverride;
   final List<Color>? gradientColors;
   final bool showOnlineIndicator;
+  final String? fotoUrl;
 
   const AvatarWidget({
     super.key,
@@ -17,6 +18,7 @@ class AvatarWidget extends StatelessWidget {
     this.iconOverride,
     this.gradientColors,
     this.showOnlineIndicator = false,
+    this.fotoUrl,
   });
 
   String get _iniciais {
@@ -39,6 +41,20 @@ class AvatarWidget extends StatelessWidget {
       [const Color(0xFF6366F1), const Color(0xFFA855F7)],
     ];
     return gradients[hash % gradients.length];
+  }
+
+  Widget _buildConteudoPadrao() {
+    return iconOverride != null
+        ? Icon(iconOverride, color: Colors.white, size: size * 0.45)
+        : Text(
+            _iniciais,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: size * 0.36,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          );
   }
 
   @override
@@ -65,23 +81,17 @@ class AvatarWidget extends StatelessWidget {
               ),
             ],
           ),
-          child: Center(
-            child: iconOverride != null
-                ? Icon(
-                    iconOverride,
-                    color: Colors.white,
-                    size: size * 0.45,
-                  )
-                : Text(
-                    _iniciais,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: size * 0.36,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                    ),
+          child: (fotoUrl != null && fotoUrl!.isNotEmpty)
+              ? ClipOval(
+                  child: Image.network(
+                    fotoUrl!,
+                    width: size,
+                    height: size,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => _buildConteudoPadrao(),
                   ),
-          ),
+                )
+              : Center(child: _buildConteudoPadrao()),
         ),
         if (showOnlineIndicator)
           Positioned(

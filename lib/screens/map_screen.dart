@@ -1,20 +1,26 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
+import 'concluir_perfil_screen.dart';
 import 'novo_anuncio_screen.dart';
 import '../main.dart';
 import '../models/imovel.dart';
 import '../models/filtro_state.dart';
+import '../models/usuario.dart';
+import '../services/busca_service.dart';
+import '../services/rota_service.dart';
+import '../services/usuario_service.dart';
 import '../widgets/avatar_widget.dart';
 import '../widgets/animated_gradient_button.dart';
 
 class CentroDoMapa extends StatefulWidget {
-  final String tipoUsuario;
+  final Usuario perfil;
 
-  const CentroDoMapa({super.key, required this.tipoUsuario});
+  const CentroDoMapa({super.key, required this.perfil});
 
   @override
   State<CentroDoMapa> createState() => _CentroDoMapaState();
@@ -23,32 +29,32 @@ class CentroDoMapa extends StatefulWidget {
 class _CentroDoMapaState extends State<CentroDoMapa>
     with SingleTickerProviderStateMixin {
 
-  // coordenada de fallback caso o gps nao responda
-  final LatLng _posicaoInicial = const LatLng(-22.2528, -45.6976);
   GoogleMapController? _mapController;
 
   final TextEditingController _buscaController = TextEditingController();
+  final FocusNode _buscaFocusNode = FocusNode();
+  Timer? _debounceSugestoes;
+  List<SugestaoBusca> _sugestoes = [];
 
   String _modoMapaAtual = 'Normal';
 
-  String _tipoUsuarioAtual = 'estudante';
-  String _nomeUsuario = 'Usuário Hive';
-  String _emailUsuario = 'usuario@hive.com';
+  late Usuario _perfilAtual;
 
   String _estiloMapaEscuro = '';
   String _estiloMapaLimpo = '';
   String? _estiloAtivo;
 
   final FiltroState _filtroState = FiltroState();
-  final List<String> _todasTags = [
-    'República', 'Apartamento', 'Kitnet', 'Suíte',
-    'Mobiliado', 'Perto da Facul', 'Garagem', 'Com Wi-Fi',
-  ];
 
   Set<Marker> _marcadores = {};
   bool _buscaComTexto = false;
 
   List<Imovel> _imoveisDoBanco = [];
+
+  final RotaService _rotaService = RotaService(googleMapsApiKey);
+  Set<Polyline> _rotas = {};
+  RotaResultado? _rotaAtual;
+  bool _carregandoRota = false;
 
   late VoidCallback _temaListener;
   late VoidCallback _filtroListener;
@@ -60,7 +66,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   @override
   void initState() {
     super.initState();
-    _tipoUsuarioAtual = widget.tipoUsuario;
+    _perfilAtual = widget.perfil;
     _carregarDadosUsuarioLogado();
     _carregarEstilosDoAsset();
     _obterLocalizacaoReal(); // ja dispara a busca do gps ao abrir a tela
@@ -103,7 +109,18 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     _buscaController.addListener(() {
       setState(() => _buscaComTexto = _buscaController.text.isNotEmpty);
       _atualizarMarcadoresFiltrados();
+
+      // debounce so pras sugestoes -- evita recalcular a lista a cada tecla
+      _debounceSugestoes?.cancel();
+      _debounceSugestoes = Timer(const Duration(milliseconds: 400), () {
+        if (!mounted) return;
+        setState(() {
+          _sugestoes = BuscaService.instance.buscarSugestoes(_buscaController.text, _imoveisDoBanco);
+        });
+      });
     });
+
+    _buscaFocusNode.addListener(() => setState(() {}));
   }
 
   // pede permissao de localizacao e centraliza o mapa no gps
@@ -138,33 +155,21 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   Future<void> _carregarDadosUsuarioLogado() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user != null && user.email != null) {
-        final emailFormatado = user.email!.toLowerCase().trim();
-
-        if (mounted) {
-          setState(() {
-            _emailUsuario = emailFormatado;
-          });
-        }
-
-        final query = await FirebaseFirestore.instance
-            .collection('usuarios')
-            .where('email', isEqualTo: emailFormatado)
-            .get();
-
-        if (query.docs.isNotEmpty) {
-          final data = query.docs.first.data();
-          if (mounted) {
-            setState(() {
-              _tipoUsuarioAtual = data['tipoUsuario'] ?? widget.tipoUsuario;
-              _nomeUsuario = data['nome'] ?? 'Usuário Hive';
-            });
-          }
-        }
+      if (user == null) return;
+      final perfil = await UsuarioService.instance.buscarPorUid(user.uid);
+      if (perfil != null && mounted) {
+        setState(() => _perfilAtual = perfil);
       }
     } catch (e) {
       debugPrint("Erro ao carregar dados do usuário: $e");
     }
+  }
+
+  void _selecionarSugestao(SugestaoBusca sugestao) {
+    _buscaController.text = sugestao.texto;
+    _buscaFocusNode.unfocus();
+    setState(() => _sugestoes = []);
+    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(sugestao.destino, 16));
   }
 
   @override
@@ -172,7 +177,9 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     temaGlobal.removeListener(_temaListener);
     _filtroState.removeListener(_filtroListener);
     _filtroState.dispose();
+    _debounceSugestoes?.cancel();
     _buscaController.dispose();
+    _buscaFocusNode.dispose();
     _animIniciaisController.dispose();
     super.dispose();
   }
@@ -191,12 +198,14 @@ class _CentroDoMapaState extends State<CentroDoMapa>
         final combinado = '${item.titulo} ${item.descricao}'.toLowerCase();
         if (!combinado.contains(textoBusca)) return false;
       }
-      if (item.tipo == TipoListing.evento) return true;
-      if (item.preco > _filtroState.precoMaximo) return false;
+      // evento nao tem preco de aluguel, entao pula so o filtro de preco
+      if (item.tipo != TipoListing.evento && item.preco > _filtroState.precoMaximo) {
+        return false;
+      }
       if (_filtroState.tagsSelecionadas.isNotEmpty) {
-        final temTag = _filtroState.tagsSelecionadas
-            .any((tag) => item.tags.contains(tag));
-        if (!temTag) return false;
+        final temTodasAsTags = _filtroState.tagsSelecionadas
+            .every((tag) => item.tags.contains(tag));
+        if (!temTodasAsTags) return false;
       }
       return true;
     }).toList();
@@ -214,9 +223,78 @@ class _CentroDoMapaState extends State<CentroDoMapa>
             title: item.titulo,
             snippet: item.descricao,
           ),
+          onTap: isEvento ? null : () => _tracarRotaAteInatel(item),
         );
       }).toSet();
     });
+  }
+
+  // busca a rota de carro do imovel ate o inatel e desenha no mapa
+  Future<void> _tracarRotaAteInatel(Imovel imovel) async {
+    setState(() => _carregandoRota = true);
+    try {
+      final resultado = await _rotaService.buscarRota(
+        origem: imovel.posicao,
+        destino: posicaoInatel,
+      );
+
+      if (!mounted) return;
+
+      if (resultado == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível calcular a rota até o Inatel.'),
+            backgroundColor: corErro,
+          ),
+        );
+        return;
+      }
+
+      setState(() {
+        _rotaAtual = resultado;
+        _rotas = {
+          Polyline(
+            polylineId: const PolylineId('rota_inatel'),
+            points: resultado.pontos,
+            color: corPrimaria,
+            width: 5,
+          ),
+        };
+      });
+
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLngBounds(_calcularBounds(resultado.pontos), 60),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao buscar rota: $e'), backgroundColor: corErro),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _carregandoRota = false);
+    }
+  }
+
+  void _limparRota() {
+    setState(() {
+      _rotas = {};
+      _rotaAtual = null;
+    });
+  }
+
+  LatLngBounds _calcularBounds(List<LatLng> pontos) {
+    double? minLat, maxLat, minLng, maxLng;
+    for (final p in pontos) {
+      minLat = (minLat == null || p.latitude < minLat) ? p.latitude : minLat;
+      maxLat = (maxLat == null || p.latitude > maxLat) ? p.latitude : maxLat;
+      minLng = (minLng == null || p.longitude < minLng) ? p.longitude : minLng;
+      maxLng = (maxLng == null || p.longitude > maxLng) ? p.longitude : maxLng;
+    }
+    return LatLngBounds(
+      southwest: LatLng(minLat!, minLng!),
+      northeast: LatLng(maxLat!, maxLng!),
+    );
   }
 
   void _atualizarEstiloMapa() {
@@ -365,7 +443,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: _todasTags.map((tag) {
+                    children: tagsDisponiveis.map((tag) {
                       bool selecionado = tagsTemp.contains(tag);
                       return GestureDetector(
                         onTap: () {
@@ -458,143 +536,51 @@ class _CentroDoMapaState extends State<CentroDoMapa>
 
   void _mostrarPerfil() {
     bool isDark = Theme.of(context).brightness == Brightness.dark;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: isDark ? corCardEscuro : Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.white.withAlpha(30) : Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              Center(
-                child: Column(
-                  children: [
-                    Stack(
-                      children: [
-                        AvatarWidget(
-                          nome: _nomeUsuario,
-                          size: 72,
-                          showOnlineIndicator: true,
-                        ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: GestureDetector(
-                            onTap: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Abrindo galeria de fotos...')),
-                              );
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: corPrimaria,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: isDark ? corCardEscuro : Colors.white,
-                                  width: 2,
-                                ),
-                              ),
-                              child: const Icon(Icons.camera_alt_rounded, size: 16, color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _tipoUsuarioAtual.toLowerCase() == 'proprietario'
-                          ? 'Proprietário'
-                          : _tipoUsuarioAtual.toLowerCase() == 'corretor'
-                          ? 'Corretor'
-                          : 'Estudante',
-                      style: AppTextStyles.heading3.copyWith(
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _emailUsuario,
-                      style: AppTextStyles.caption.copyWith(
-                        color: isDark ? Colors.white38 : Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              Divider(color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20)),
-              const SizedBox(height: 8),
-
-              Container(
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white.withAlpha(5) : corSucesso.withAlpha(8),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: corSucesso.withAlpha(20),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.verified_user_outlined, color: corSucesso, size: 22),
-                  ),
-                  title: Text(
-                    'Finalizar Cadastro',
-                    style: AppTextStyles.bodyBold.copyWith(
-                      color: isDark ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  subtitle: Text(
-                    'Insira documentos para habilitar recursos.',
-                    style: AppTextStyles.caption.copyWith(
-                      color: isDark ? Colors.white38 : Colors.grey,
-                    ),
-                  ),
-                  trailing: Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    size: 14,
-                    color: isDark ? Colors.white24 : Colors.grey,
-                  ),
-                  onTap: () => Navigator.pop(context),
-                ),
-              ),
-            ],
-          ),
+      builder: (sheetContext) {
+        return _PerfilPreview(
+          perfil: _perfilAtual,
+          onConcluirPerfil: () async {
+            Navigator.pop(sheetContext);
+            final atualizado = await Navigator.push<Usuario>(
+              context,
+              MaterialPageRoute(builder: (_) => ConcluirPerfilScreen(perfil: _perfilAtual)),
+            );
+            if (atualizado != null && mounted) {
+              setState(() => _perfilAtual = atualizado);
+            }
+          },
         );
       },
     );
   }
 
   void _mostrarConfiguracoes() {
-    bool isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
-      backgroundColor: isDark ? corCardEscuro : Colors.white,
+      backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
       builder: (context) {
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setModalState) {
-            return Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
+            // recalculado aqui dentro (a partir do temaGlobal, nao do Theme.of
+            // que so seria atualizado no proximo build da tela por baixo) --
+            // antes isDark vinha de fora do StatefulBuilder e ficava preso no
+            // valor de quando a folha abriu, so atualizando se fechasse e
+            // abrisse ela de novo
+            final bool isDark = temaGlobal.value == ThemeMode.dark ||
+                (temaGlobal.value == ThemeMode.system &&
+                    MediaQuery.platformBrightnessOf(context) == Brightness.dark);
+            return ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              child: Container(
+                color: isDark ? corCardEscuro : Colors.white,
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -675,7 +661,8 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                       Expanded(child: _botaoModoMapa('Satélite', Icons.satellite_alt_rounded, isDark, setModalState)),
                     ],
                   ),
-                ],
+                  ],
+                ),
               ),
             );
           },
@@ -780,17 +767,19 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   Widget build(BuildContext context) {
     bool isDark = Theme.of(context).brightness == Brightness.dark;
     final double topOffset = MediaQuery.of(context).padding.top + 10;
-    final bool isProprietario = _tipoUsuarioAtual.toLowerCase() == 'proprietario';
+    final bool podeAnunciar = _perfilAtual.perfilCompleto &&
+        _perfilAtual.tipoUsuario.toLowerCase() == 'proprietario';
 
     return Stack(
       children: [
         GoogleMap(
           onMapCreated: _onMapCreated,
-          initialCameraPosition: CameraPosition(target: _posicaoInicial, zoom: 15.0),
+          initialCameraPosition: CameraPosition(target: posicaoInatel, zoom: 15.0),
           myLocationEnabled: true,
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
           markers: _marcadores,
+          polylines: _rotas,
           mapType: _modoMapaAtual == 'Satélite' ? MapType.satellite : MapType.normal,
           style: _estiloAtivo,
         ),
@@ -803,78 +792,194 @@ class _CentroDoMapaState extends State<CentroDoMapa>
             opacity: _fadeAnim,
             child: SlideTransition(
               position: _slideAnim,
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildGlassButton(
-                    child: AvatarWidget(nome: _nomeUsuario, size: 44),
-                    onTap: _mostrarPerfil,
-                  ),
-                  const SizedBox(width: 10),
+                  Row(
+                    children: [
+                      _buildGlassButton(
+                        child: AvatarWidget(nome: _perfilAtual.nome, fotoUrl: _perfilAtual.fotoUrl, size: 44),
+                        onTap: _mostrarPerfil,
+                        badgeColor: _perfilAtual.perfilCompleto ? null : corErro,
+                      ),
+                      const SizedBox(width: 10),
 
-                  Expanded(
-                    child: Container(
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: isDark ? corCardEscuro : Colors.white,
+                            borderRadius: BorderRadius.circular(30),
+                            border: Border.all(
+                              color: isDark ? Colors.white.withAlpha(12) : Colors.white,
+                              width: 2,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: isDark ? Colors.black.withAlpha(50) : corPrimaria.withAlpha(20),
+                                blurRadius: 16,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: TextField(
+                            controller: _buscaController,
+                            focusNode: _buscaFocusNode,
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black87,
+                              fontSize: 15,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: 'Buscar locais...',
+                              hintStyle: TextStyle(
+                                color: isDark ? Colors.white38 : Colors.black38,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              border: InputBorder.none,
+                              prefixIcon: const Icon(Icons.search_rounded, color: corPrimaria, size: 22),
+                              suffixIcon: _buscaComTexto
+                                  ? IconButton(
+                                icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
+                                onPressed: () => _buscaController.clear(),
+                              )
+                                  : IconButton(
+                                icon: Badge(
+                                  isLabelVisible: _filtroState.temFiltrosAtivos,
+                                  smallSize: 8,
+                                  backgroundColor: corPrimaria,
+                                  child: const Icon(Icons.tune_rounded, color: corPrimaria, size: 22),
+                                ),
+                                onPressed: _mostrarFiltros,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      _buildGlassButton(
+                        child: Icon(Icons.settings_rounded, color: isDark ? Colors.white : Colors.black87, size: 22),
+                        onTap: _mostrarConfiguracoes,
+                      ),
+                    ],
+                  ),
+                  if (_sugestoes.isNotEmpty && _buscaFocusNode.hasFocus)
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      constraints: const BoxConstraints(maxHeight: 260),
                       decoration: BoxDecoration(
                         color: isDark ? corCardEscuro : Colors.white,
-                        borderRadius: BorderRadius.circular(30),
-                        border: Border.all(
-                          color: isDark ? Colors.white.withAlpha(12) : Colors.white,
-                          width: 2,
-                        ),
+                        borderRadius: BorderRadius.circular(20),
                         boxShadow: [
-                          BoxShadow(
-                            color: isDark ? Colors.black.withAlpha(50) : corPrimaria.withAlpha(20),
-                            blurRadius: 16,
-                            offset: const Offset(0, 4),
-                          ),
+                          BoxShadow(color: Colors.black.withAlpha(isDark ? 60 : 15), blurRadius: 16, offset: const Offset(0, 6)),
                         ],
                       ),
-                      child: TextField(
-                        controller: _buscaController,
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black87,
-                          fontSize: 15,
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: _sugestoes.length,
+                        separatorBuilder: (_, _) => Divider(
+                          height: 1, indent: 56,
+                          color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20),
                         ),
-                        decoration: InputDecoration(
-                          hintText: 'Buscar locais...',
-                          hintStyle: TextStyle(
-                            color: isDark ? Colors.white38 : Colors.black38,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          border: InputBorder.none,
-                          prefixIcon: const Icon(Icons.search_rounded, color: corPrimaria, size: 22),
-                          suffixIcon: _buscaComTexto
-                              ? IconButton(
-                            icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
-                            onPressed: () => _buscaController.clear(),
-                          )
-                              : IconButton(
-                            icon: Badge(
-                              isLabelVisible: _filtroState.temFiltrosAtivos,
-                              smallSize: 8,
-                              backgroundColor: corPrimaria,
-                              child: const Icon(Icons.tune_rounded, color: corPrimaria, size: 22),
+                        itemBuilder: (context, index) {
+                          final sugestao = _sugestoes[index];
+                          final IconData icone = switch (sugestao.tipo) {
+                            TipoSugestao.cidade => Icons.location_city_rounded,
+                            TipoSugestao.faculdade => Icons.school_rounded,
+                            TipoSugestao.moradia => Icons.home_rounded,
+                          };
+                          return ListTile(
+                            leading: Icon(icone, color: corPrimaria),
+                            title: Text(
+                              sugestao.texto,
+                              style: TextStyle(color: isDark ? Colors.white : Colors.black87),
                             ),
-                            onPressed: _mostrarFiltros,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                        ),
+                            onTap: () => _selecionarSugestao(sugestao),
+                          );
+                        },
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  _buildGlassButton(
-                    child: Icon(Icons.settings_rounded, color: isDark ? Colors.white : Colors.black87, size: 22),
-                    onTap: _mostrarConfiguracoes,
-                  ),
                 ],
               ),
             ),
           ),
         ),
 
+        if (_carregandoRota)
+          Positioned(
+            bottom: podeAnunciar ? 150 : 90,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: isDark ? corCardEscuro : Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withAlpha(isDark ? 60 : 20), blurRadius: 16, offset: const Offset(0, 6)),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 18, height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: corPrimaria),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Calculando rota até o Inatel...',
+                    style: TextStyle(color: isDark ? Colors.white70 : Colors.black87),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else if (_rotaAtual != null)
+          Positioned(
+            bottom: podeAnunciar ? 150 : 90,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: isDark ? corCardEscuro : Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withAlpha(isDark ? 60 : 20), blurRadius: 16, offset: const Offset(0, 6)),
+                ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.directions_car_rounded, color: corPrimaria),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Rota até o Inatel',
+                          style: AppTextStyles.captionBold.copyWith(color: isDark ? Colors.white : Colors.black87),
+                        ),
+                        Text(
+                          '${_rotaAtual!.distanciaTexto} · ${_rotaAtual!.duracaoTexto}',
+                          style: AppTextStyles.caption.copyWith(color: isDark ? Colors.white54 : Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close_rounded, color: isDark ? Colors.white38 : Colors.grey),
+                    onPressed: _limparRota,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
         // botao pra focar na localizacao do usuario
         Positioned(
-          bottom: isProprietario ? 84 : 20, // Sobe se o botao de anunciar estiver visivel
+          bottom: podeAnunciar ? 84 : 20, // Sobe se o botao de anunciar estiver visivel
           right: 16,
           child: FloatingActionButton(
             heroTag: 'btnLocation',
@@ -885,7 +990,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
           ),
         ),
 
-        if (isProprietario)
+        if (podeAnunciar)
           Positioned(
             bottom: 20,
             right: 16,
@@ -934,6 +1039,96 @@ class _CentroDoMapaState extends State<CentroDoMapa>
             ),
           ),
       ],
+    );
+  }
+}
+
+// previa rapida do perfil (avatar, nome, selo de completo/incompleto) --
+// a edicao de verdade agora mora toda em ConcluirPerfilScreen
+class _PerfilPreview extends StatelessWidget {
+  final Usuario perfil;
+  final VoidCallback onConcluirPerfil;
+
+  const _PerfilPreview({required this.perfil, required this.onConcluirPerfil});
+
+  String get _rotuloTipo {
+    switch (perfil.tipoUsuario.toLowerCase()) {
+      case 'proprietario':
+        return 'Proprietário';
+      case 'corretor':
+        return perfil.subtipoCorretor == 'empresa' ? 'Corretor (Empresa)' : 'Corretor Autônomo';
+      case 'estudante':
+        return 'Estudante';
+      default:
+        return 'Tipo de conta não definido';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final corSelo = perfil.perfilCompleto ? corSucesso : corAtencao;
+
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withAlpha(30) : Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: Column(
+              children: [
+                AvatarWidget(
+                  nome: perfil.nome.isNotEmpty ? perfil.nome : perfil.email,
+                  fotoUrl: perfil.fotoUrl,
+                  size: 72,
+                  showOnlineIndicator: true,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  perfil.nome.isNotEmpty ? perfil.nome : 'Usuário Hive',
+                  style: AppTextStyles.heading3.copyWith(color: isDark ? Colors.white : Colors.black87),
+                ),
+                const SizedBox(height: 4),
+                Text(_rotuloTipo, style: AppTextStyles.captionBold.copyWith(color: corPrimaria)),
+                const SizedBox(height: 4),
+                Text(
+                  perfil.email,
+                  style: AppTextStyles.caption.copyWith(color: isDark ? Colors.white38 : Colors.grey),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: corSelo.withAlpha(25),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    perfil.perfilCompleto ? 'Perfil completo' : 'Perfil incompleto',
+                    style: TextStyle(color: corSelo, fontWeight: FontWeight.w700, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          AnimatedGradientButton(
+            label: perfil.perfilCompleto ? 'Editar Perfil' : 'Concluir Perfil',
+            onTap: onConcluirPerfil,
+          ),
+        ],
+      ),
     );
   }
 }

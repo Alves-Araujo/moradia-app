@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../main.dart';
+import '../services/auth_service.dart';
+import '../services/usuario_service.dart';
+import '../utils/moderacao.dart';
 import '../widgets/animated_gradient_button.dart';
 
 class TelaCadastro extends StatefulWidget {
@@ -18,21 +21,14 @@ class _TelaCadastroState extends State<TelaCadastro>
   final TextEditingController _senhaController = TextEditingController();
   final TextEditingController _confirmaSenhaController = TextEditingController();
 
-  String? _tipoUsuarioSelecionado;
   bool _senhaVisivel = false;
   bool _confirmaSenhaVisivel = false;
   bool _carregando = false;
+  bool _carregandoGoogle = false;
 
   late AnimationController _animController;
   late List<Animation<double>> _fadeAnims;
   late List<Animation<Offset>> _slideAnims;
-
-  // tipos de usuario disponiveis
-  final _tiposUsuario = [
-    {'value': 'estudante', 'label': 'Estudante', 'desc': 'Quero alugar', 'icon': Icons.school_rounded},
-    {'value': 'proprietario', 'label': 'Proprietário', 'desc': 'Dono do imóvel', 'icon': Icons.home_work_rounded},
-    {'value': 'corretor', 'label': 'Corretor', 'desc': 'Imobiliária', 'icon': Icons.business_center_rounded},
-  ];
 
   @override
   void initState() {
@@ -42,7 +38,7 @@ class _TelaCadastroState extends State<TelaCadastro>
       duration: const Duration(milliseconds: 1200),
     );
 
-    _fadeAnims = List.generate(8, (i) {
+    _fadeAnims = List.generate(7, (i) {
       final start = (i * 0.1).clamp(0.0, 1.0);
       final end = (start + 0.4).clamp(0.0, 1.0);
       return Tween<double>(begin: 0.0, end: 1.0).animate(
@@ -50,7 +46,7 @@ class _TelaCadastroState extends State<TelaCadastro>
       );
     });
 
-    _slideAnims = List.generate(8, (i) {
+    _slideAnims = List.generate(7, (i) {
       final start = (i * 0.1).clamp(0.0, 1.0);
       final end = (start + 0.4).clamp(0.0, 1.0);
       return Tween<Offset>(begin: const Offset(0, 0.12), end: Offset.zero).animate(
@@ -111,12 +107,16 @@ class _TelaCadastroState extends State<TelaCadastro>
       _mostrarErro('Informe seu nome completo.');
       return;
     }
-    if (email.isEmpty || !email.contains('@')) {
-      _mostrarErro('Informe um e-mail válido.');
+    if (!temNomeESobrenome(nome)) {
+      _mostrarErro('Informe nome e sobrenome.');
       return;
     }
-    if (_tipoUsuarioSelecionado == null) {
-      _mostrarErro('Selecione seu tipo de perfil.');
+    if (contemPalavraImpropria(nome)) {
+      _mostrarErro('Esse nome contém palavras não permitidas.');
+      return;
+    }
+    if (email.isEmpty || !email.contains('@')) {
+      _mostrarErro('Informe um e-mail válido.');
       return;
     }
     if (senha.length < 6) {
@@ -131,44 +131,30 @@ class _TelaCadastroState extends State<TelaCadastro>
     setState(() => _carregando = true);
 
     try {
-      // cria a conta no authentication
-      final credencial = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email,
-        password: senha,
-      );
+      if (await UsuarioService.instance.nomeJaExiste(nome)) {
+        _mostrarErro('Já existe uma conta cadastrada com esse nome.');
+        return;
+      }
 
-      // salva o resto dos dados no firestore usando o uid
+      // cria a conta no authentication
+      final credencial = await AuthService.instance.cadastrarComEmailSenha(email, senha);
+
+      // salva o resto dos dados no firestore usando o uid -- tipo de conta e
+      // documentos ficam pra tela de "concluir perfil"
       if (credencial.user != null) {
-        await FirebaseFirestore.instance.collection('usuarios').doc(credencial.user!.uid).set({
-          'nome': nome,
-          'email': email,
-          'tipoUsuario': _tipoUsuarioSelecionado,
-          'dataCriacao': FieldValue.serverTimestamp(), // Pega a hora exata do servidor
-        });
+        await UsuarioService.instance.criarPerfil(
+          uid: credencial.user!.uid,
+          nome: nome,
+          email: email,
+        );
+        await AuthService.instance.enviarEmailDeVerificacao();
       }
 
       if (!mounted) return;
 
-      // deu certo, entao vai pra tela principal
-      Navigator.pushAndRemoveUntil(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (context, anim1, anim2) => TelaPrincipal(tipoUsuario: _tipoUsuarioSelecionado!),
-          transitionsBuilder: (context, anim1, anim2, child) {
-            return FadeTransition(
-              opacity: anim1,
-              child: ScaleTransition(
-                scale: Tween(begin: 0.96, end: 1.0).animate(
-                  CurvedAnimation(parent: anim1, curve: Curves.easeOut),
-                ),
-                child: child,
-              ),
-            );
-          },
-          transitionDuration: const Duration(milliseconds: 400),
-        ),
-            (Route<dynamic> route) => false,
-      );
+      // fecha essa tela -- a AuthGate, que fica por baixo, ja assume sozinha
+      // e mostra a tela de "confirme seu e-mail"
+      Navigator.of(context).popUntil((route) => route.isFirst);
     } on FirebaseAuthException catch (e) {
       // erros comuns do firebase na hora de cadastrar
       String msgErro = 'Erro ao criar conta.';
@@ -186,6 +172,23 @@ class _TelaCadastroState extends State<TelaCadastro>
       if (mounted) {
         setState(() => _carregando = false);
       }
+    }
+  }
+
+  // cadastro/login via google -- conta ja vem com e-mail verificado, entao a
+  // AuthGate pula direto pra tela de escolher tipo de conta (perfil novo) ou principal
+  Future<void> _continuarComGoogle() async {
+    setState(() => _carregandoGoogle = true);
+    try {
+      await AuthService.instance.entrarComGoogle();
+      if (!mounted) return;
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } on GoogleSignInException catch (e) {
+      _mostrarErro('Erro ao entrar com Google: ${e.description ?? e.code}');
+    } catch (e) {
+      _mostrarErro('Ocorreu um erro inesperado.');
+    } finally {
+      if (mounted) setState(() => _carregandoGoogle = false);
     }
   }
 
@@ -368,92 +371,8 @@ class _TelaCadastroState extends State<TelaCadastro>
                       )),
                       const SizedBox(height: 20),
 
-                      // tipo de usuario
-                      _animarElemento(4, Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Eu sou um...',
-                            style: AppTextStyles.captionBold.copyWith(
-                              color: isDark ? Colors.white70 : Colors.black87,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: _tiposUsuario.map((tipo) {
-                              final bool selected = _tipoUsuarioSelecionado == tipo['value'];
-                              return Expanded(
-                                child: GestureDetector(
-                                  onTap: () => setState(() => _tipoUsuarioSelecionado = tipo['value'] as String),
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 200),
-                                    curve: Curves.easeOut,
-                                    margin: EdgeInsets.only(
-                                      right: tipo != _tiposUsuario.last ? 10 : 0,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                                    decoration: BoxDecoration(
-                                      color: selected
-                                          ? corPrimaria.withAlpha(isDark ? 30 : 20)
-                                          : (isDark ? Colors.white.withAlpha(8) : Colors.white.withAlpha(180)),
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: selected
-                                            ? corPrimaria
-                                            : (isDark ? Colors.white.withAlpha(12) : Colors.grey.withAlpha(30)),
-                                        width: selected ? 2 : 1,
-                                      ),
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(10),
-                                          decoration: BoxDecoration(
-                                            color: selected
-                                                ? corPrimaria.withAlpha(30)
-                                                : (isDark ? Colors.white.withAlpha(8) : Colors.grey.withAlpha(15)),
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                          child: Icon(
-                                            tipo['icon'] as IconData,
-                                            color: selected ? corPrimaria : (isDark ? Colors.white54 : Colors.grey),
-                                            size: 24,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        Text(
-                                          tipo['label'] as String,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                            color: selected
-                                                ? corPrimaria
-                                                : (isDark ? Colors.white70 : Colors.black87),
-                                          ),
-                                          textAlign: TextAlign.center,
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          tipo['desc'] as String,
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            color: isDark ? Colors.white38 : Colors.grey,
-                                          ),
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ],
-                      )),
-                      const SizedBox(height: 20),
-
                       // campo senha
-                      _animarElemento(5, Column(
+                      _animarElemento(4, Column(
                         children: [
                           TextField(
                             controller: _senhaController,
@@ -502,7 +421,7 @@ class _TelaCadastroState extends State<TelaCadastro>
                       const SizedBox(height: 16),
 
                       // confirmar senha
-                      _animarElemento(6, TextField(
+                      _animarElemento(5, TextField(
                         controller: _confirmaSenhaController,
                         obscureText: !_confirmaSenhaVisivel,
                         style: TextStyle(color: isDark ? Colors.white : Colors.black87),
@@ -519,10 +438,55 @@ class _TelaCadastroState extends State<TelaCadastro>
                       const SizedBox(height: 32),
 
                       // botao cadastrar
-                      _animarElemento(7, AnimatedGradientButton(
+                      _animarElemento(6, AnimatedGradientButton(
                         label: 'Cadastrar',
                         isLoading: _carregando,
                         onTap: _cadastrar,
+                      )),
+                      const SizedBox(height: 16),
+                      _animarElemento(6, Row(
+                        children: [
+                          Expanded(child: Divider(color: isDark ? Colors.white.withAlpha(20) : Colors.grey.shade300)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: Text(
+                              'ou',
+                              style: TextStyle(
+                                color: isDark ? Colors.white30 : Colors.grey.shade400,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          Expanded(child: Divider(color: isDark ? Colors.white.withAlpha(20) : Colors.grey.shade300)),
+                        ],
+                      )),
+                      const SizedBox(height: 16),
+                      _animarElemento(6, SizedBox(
+                        height: 56,
+                        child: OutlinedButton.icon(
+                          onPressed: _carregandoGoogle ? null : _continuarComGoogle,
+                          icon: _carregandoGoogle
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.g_mobiledata_rounded, size: 28),
+                          label: const Text(
+                            'Continuar com Google',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: isDark ? Colors.white70 : Colors.black87,
+                            side: BorderSide(
+                              color: isDark ? Colors.white.withAlpha(25) : Colors.grey.withAlpha(80),
+                              width: 1.5,
+                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                            backgroundColor: isDark ? Colors.white.withAlpha(5) : Colors.white.withAlpha(120),
+                          ),
+                        ),
                       )),
                       const SizedBox(height: 32),
                     ],

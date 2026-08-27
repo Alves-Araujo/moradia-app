@@ -1,8 +1,9 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../main.dart';
+import '../services/auth_service.dart';
 import '../widgets/animated_gradient_button.dart';
 import 'cadastro_screen.dart';
 
@@ -18,6 +19,7 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
   final TextEditingController _senhaController = TextEditingController();
   bool _senhaVisivel = false;
   bool _carregando = false;
+  bool _carregandoGoogle = false;
 
   // animacoes de entrada
   late AnimationController _staggerController;
@@ -95,49 +97,8 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
     setState(() => _carregando = true);
 
     try {
-      // autentica no firebase
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: senha,
-      );
-
-      // busca o tipo do usuario no firestore
-      String tipoUsuarioFinal = 'estudante'; // Padrão de segurança
-      try {
-        final query = await FirebaseFirestore.instance
-            .collection('usuarios')
-            .where('email', isEqualTo: email)
-            .get();
-
-        if (query.docs.isNotEmpty) {
-          tipoUsuarioFinal = query.docs.first.data()['tipoUsuario'] ?? 'estudante';
-        }
-      } catch (e) {
-        debugPrint("Erro ao buscar tipo de usuário: $e");
-      }
-
-      if (!mounted) return;
-
-      // vai pra tela principal ja com o tipo certo
-      Navigator.pushAndRemoveUntil(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (context, anim1, anim2) => TelaPrincipal(tipoUsuario: tipoUsuarioFinal),
-          transitionsBuilder: (context, anim1, anim2, child) {
-            return FadeTransition(
-              opacity: anim1,
-              child: ScaleTransition(
-                scale: Tween(begin: 0.96, end: 1.0).animate(
-                  CurvedAnimation(parent: anim1, curve: Curves.easeOut),
-                ),
-                child: child,
-              ),
-            );
-          },
-          transitionDuration: const Duration(milliseconds: 400),
-        ),
-            (route) => false,
-      );
+      // autentica no firebase -- a AuthGate percebe sozinha e troca de tela
+      await AuthService.instance.entrarComEmailSenha(email, senha);
     } on FirebaseAuthException catch (e) {
       String msgErro = 'Erro ao fazer login.';
       if (e.code == 'user-not-found' || e.code == 'invalid-email') {
@@ -154,6 +115,20 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
       if (mounted) {
         setState(() => _carregando = false);
       }
+    }
+  }
+
+  // login com google -- a AuthGate cuida do resto (perfil novo cai na tela de escolher tipo de conta)
+  Future<void> _entrarComGoogle() async {
+    setState(() => _carregandoGoogle = true);
+    try {
+      await AuthService.instance.entrarComGoogle();
+    } on GoogleSignInException catch (e) {
+      _mostrarErro('Erro ao entrar com Google: ${e.description ?? e.code}');
+    } catch (e) {
+      _mostrarErro('Ocorreu um erro inesperado.');
+    } finally {
+      if (mounted) setState(() => _carregandoGoogle = false);
     }
   }
 
@@ -319,7 +294,34 @@ class _TelaLoginState extends State<TelaLogin> with TickerProviderStateMixin {
                         Expanded(child: Divider(color: isDark ? Colors.white.withAlpha(20) : Colors.grey.shade300)),
                       ],
                     )),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
+                    _animarElemento(5, SizedBox(
+                      height: 56,
+                      child: OutlinedButton.icon(
+                        onPressed: _carregandoGoogle ? null : _entrarComGoogle,
+                        icon: _carregandoGoogle
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.g_mobiledata_rounded, size: 28),
+                        label: const Text(
+                          'Continuar com Google',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: isDark ? Colors.white70 : Colors.black87,
+                          side: BorderSide(
+                            color: isDark ? Colors.white.withAlpha(25) : Colors.grey.withAlpha(80),
+                            width: 1.5,
+                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                          backgroundColor: isDark ? Colors.white.withAlpha(5) : Colors.white.withAlpha(120),
+                        ),
+                      ),
+                    )),
+                    const SizedBox(height: 16),
                     _animarElemento(5, SizedBox(
                       height: 56,
                       child: OutlinedButton(

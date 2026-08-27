@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
 import '../models/imovel.dart';
+import '../models/usuario.dart';
 import '../widgets/animated_gradient_button.dart';
 import 'chat_detail_screen.dart';
 
 class TelaResumo extends StatefulWidget {
-  final String tipoUsuario;
-  const TelaResumo({super.key, required this.tipoUsuario});
+  final Usuario perfil;
+  const TelaResumo({super.key, required this.perfil});
 
   @override
   State<TelaResumo> createState() => _TelaResumoState();
@@ -266,6 +267,7 @@ class _CardImovel extends StatelessWidget {
       case 'Perto da Facul': return Icons.school_rounded;
       case 'Garagem': return Icons.garage_rounded;
       case 'Com Wi-Fi': return Icons.wifi_rounded;
+      case 'Exclusivo para Mulheres': return Icons.woman_rounded;
       default: return Icons.label_rounded;
     }
   }
