@@ -21,8 +21,12 @@ final ValueNotifier<ThemeMode> temaGlobal = ValueNotifier(ThemeMode.system);
 // posicao do inatel, usada como centro padrao do mapa e destino da rota
 const LatLng posicaoInatel = LatLng(-22.2528, -45.6976);
 
-// mesma chave que ja esta no AndroidManifest.xml, usada aqui pra chamar a Directions API
-const String googleMapsApiKey = 'AIzaSyCDSwKb86bQTu7rwcwzW0r1oRZY9U-RNrQ';
+// chave usada pra chamar a Directions API (calculo de rota) -- essa e a
+// chave do app Android no Firebase (mesmo projeto moradias-inatel, ver
+// firebase_options.dart), que e onde o billing foi habilitado. E diferente
+// da chave que fica no AndroidManifest.xml (essa outra so serve pro SDK do
+// mapa desenhar os tiles, nao precisa mudar)
+const String googleMapsApiKey = 'AIzaSyDL0aaR1gdW-x3oiH4gxZVNMozISryp5CI';
 
 // credenciais do ZegoCloud (chamadas de voz/video no chat) -- crie uma conta
 // gratis em zegocloud.com e cole o AppID/AppSign do seu projeto aqui

@@ -17,6 +17,7 @@ import '../services/busca_service.dart';
 import '../services/imobiliaria_service.dart';
 import '../services/rota_service.dart';
 import '../services/usuario_service.dart';
+import '../utils/moderacao.dart';
 import '../widgets/avatar_widget.dart';
 import '../widgets/animated_gradient_button.dart';
 
@@ -30,7 +31,7 @@ class CentroDoMapa extends StatefulWidget {
 }
 
 class _CentroDoMapaState extends State<CentroDoMapa>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
 
   GoogleMapController? _mapController;
 
@@ -77,6 +78,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _perfilAtual = widget.perfil;
     _carregarDadosUsuarioLogado();
     _carregarEstilosDoAsset();
@@ -147,10 +149,25 @@ class _CentroDoMapaState extends State<CentroDoMapa>
 
       // debounce so pras sugestoes -- evita recalcular a lista a cada tecla
       _debounceSugestoes?.cancel();
-      _debounceSugestoes = Timer(const Duration(milliseconds: 400), () {
+      _debounceSugestoes = Timer(const Duration(milliseconds: 400), () async {
         if (!mounted) return;
+        final termo = _buscaController.text;
+
+        // sugestoes locais (imoveis + lista fixa de faculdades/cidades
+        // conhecidas) aparecem na hora, sem depender de internet
         setState(() {
-          _sugestoes = BuscaService.instance.buscarSugestoes(_buscaController.text, _imoveisDoBanco);
+          _sugestoes = BuscaService.instance.buscarSugestoes(termo, _imoveisDoBanco);
+        });
+
+        // cidades/regioes de verdade vem depois, via busca online -- soma
+        // na lista sem duplicar, e so aplica se o texto nao mudou nesse meio tempo
+        final cidadesOnline = await BuscaService.instance.buscarCidadesOnline(termo);
+        if (!mounted || _buscaController.text != termo || cidadesOnline.isEmpty) return;
+        setState(() {
+          final jaTem = _sugestoes.map((s) => normalizarNome(s.texto)).toSet();
+          for (final cidade in cidadesOnline) {
+            if (jaTem.add(normalizarNome(cidade.texto))) _sugestoes.add(cidade);
+          }
         });
       });
     });
@@ -260,8 +277,16 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     _mapController?.animateCamera(CameraUpdate.newLatLngZoom(sugestao.destino, 16));
   }
 
+  // reage na hora se o usuario trocar o modo escuro/claro do celular
+  // enquanto o app ta aberto (so importa quando temaGlobal esta em "sistema")
+  @override
+  void didChangePlatformBrightness() {
+    if (temaGlobal.value == ThemeMode.system) _atualizarEstiloMapa();
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     temaGlobal.removeListener(_temaListener);
     _filtroState.removeListener(_filtroListener);
     rotaAtivaGlobal.removeListener(_rotaAtivaListener);
@@ -297,6 +322,9 @@ class _CentroDoMapaState extends State<CentroDoMapa>
         final temTodasAsTags = _filtroState.tagsSelecionadas
             .every((tag) => item.tags.contains(tag));
         if (!temTodasAsTags) return false;
+      }
+      if (_filtroState.cidadeSelecionada != null && item.cidade != _filtroState.cidadeSelecionada) {
+        return false;
       }
       return true;
     }).toList();
@@ -379,13 +407,21 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     rotaAtivaGlobal.value = null;
   }
 
+  // antes so checava "== ThemeMode.dark" -- como o padrao do app e
+  // ThemeMode.system, o mapa nunca respeitava o modo escuro do celular
+  // (sempre caia no estilo claro). Agora, quando ta em "sistema", consulta
+  // o brightness real da plataforma
+  bool get _deveUsarEstiloEscuro {
+    if (temaGlobal.value == ThemeMode.dark) return true;
+    if (temaGlobal.value == ThemeMode.light) return false;
+    return WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.dark;
+  }
+
   void _atualizarEstiloMapa() {
     if (_estiloMapaEscuro.isEmpty) return;
     String? novoEstilo;
     if (_modoMapaAtual != 'Satélite') {
-      novoEstilo = temaGlobal.value == ThemeMode.dark
-          ? _estiloMapaEscuro
-          : _estiloMapaLimpo;
+      novoEstilo = _deveUsarEstiloEscuro ? _estiloMapaEscuro : _estiloMapaLimpo;
     }
     if (mounted) setState(() => _estiloAtivo = novoEstilo);
   }
@@ -401,6 +437,14 @@ class _CentroDoMapaState extends State<CentroDoMapa>
 
     double precoTemp = _filtroState.precoMaximo;
     List<String> tagsTemp = List.from(_filtroState.tagsSelecionadas);
+    String? cidadeTemp = _filtroState.cidadeSelecionada;
+
+    // cidades conhecidas + cidades que ja tem imovel cadastrado, sem repetir
+    final cidadesDisponiveis = <String>{
+      ...locaisConhecidosParaCidade,
+      ..._imoveisDoBanco.map((i) => i.cidade).where((c) => c.isNotEmpty),
+    }.toList()
+      ..sort();
 
     showModalBottomSheet(
       context: context,
@@ -447,12 +491,39 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                           setModalState(() {
                             precoTemp = 3000;
                             tagsTemp.clear();
+                            cidadeTemp = null;
                           });
                         },
                         icon: Icon(Icons.refresh_rounded, size: 16, color: isDark ? Colors.white38 : Colors.grey),
                         label: Text('Limpar', style: TextStyle(color: isDark ? Colors.white38 : Colors.grey)),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  Text(
+                    'Cidade / Região',
+                    style: AppTextStyles.captionBold.copyWith(
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String?>(
+                    initialValue: cidadeTemp,
+                    isExpanded: true,
+                    style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                    dropdownColor: isDark ? corSuperficieEscura : Colors.white,
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: isDark ? Colors.white.withAlpha(5) : Colors.grey.withAlpha(8),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    ),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('Todas as cidades')),
+                      ...cidadesDisponiveis.map((c) => DropdownMenuItem(value: c, child: Text(c))),
+                    ],
+                    onChanged: (val) => setModalState(() => cidadeTemp = val),
                   ),
                   const SizedBox(height: 20),
 
@@ -583,10 +654,10 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                     label: 'Mostrar Resultados',
                     icon: Icons.search_rounded,
                     onTap: () {
-                      _filtroState.aplicarEstado(preco: precoTemp, tags: tagsTemp);
+                      _filtroState.aplicarEstado(preco: precoTemp, tags: tagsTemp, cidade: cidadeTemp);
 
                       Navigator.pop(context);
-                      final qtd = tagsTemp.length + (precoTemp < 3000 ? 1 : 0);
+                      final qtd = tagsTemp.length + (precoTemp < 3000 ? 1 : 0) + (cidadeTemp != null ? 1 : 0);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Row(

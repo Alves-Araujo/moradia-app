@@ -12,8 +12,6 @@ class Usuario {
   final DateTime? ultimoAcesso;
 
   final String genero;
-  final String telefone;
-  final bool telefoneVerificado;
 
   final String cidade;
   final String cpf;
@@ -50,8 +48,6 @@ class Usuario {
     this.perfilCompleto = false,
     this.ultimoAcesso,
     this.genero = '',
-    this.telefone = '',
-    this.telefoneVerificado = false,
     this.cidade = '',
     this.cpf = '',
     this.cnpj = '',
@@ -83,8 +79,6 @@ class Usuario {
       perfilCompleto: map['perfilCompleto'] ?? false,
       ultimoAcesso: (map['ultimoAcesso'] as Timestamp?)?.toDate(),
       genero: map['genero'] ?? '',
-      telefone: map['telefone'] ?? '',
-      telefoneVerificado: map['telefoneVerificado'] ?? false,
       cidade: map['cidade'] ?? '',
       cpf: map['cpf'] ?? '',
       cnpj: map['cnpj'] ?? '',
@@ -116,8 +110,6 @@ class Usuario {
       'perfilCompleto': perfilCompleto,
       if (ultimoAcesso != null) 'ultimoAcesso': Timestamp.fromDate(ultimoAcesso!),
       'genero': genero,
-      'telefone': telefone,
-      'telefoneVerificado': telefoneVerificado,
       'cidade': cidade,
       'cpf': cpf,
       'cnpj': cnpj,

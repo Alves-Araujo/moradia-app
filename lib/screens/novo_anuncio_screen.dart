@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show TextInputFormatter;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
 import '../models/imovel.dart';
 import '../services/imgbb_service.dart';
 import '../widgets/animated_gradient_button.dart';
@@ -24,11 +26,23 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
 
   final TextEditingController _tituloController = TextEditingController();
   final TextEditingController _descricaoController = TextEditingController();
-  final TextEditingController _enderecoController = TextEditingController();
   final TextEditingController _precoController = TextEditingController();
   final TextEditingController _andarController = TextEditingController();
   final TextEditingController _iptuValorController = TextEditingController();
   final TextEditingController _tagPersonalizadaController = TextEditingController();
+
+  // endereco estruturado -- exigido por completo (menos o complemento, que
+  // nem todo imovel tem) pra nao salvar mais um "endereco" solto sem padrao
+  final TextEditingController _cepController = TextEditingController();
+  final TextEditingController _logradouroController = TextEditingController();
+  final TextEditingController _numeroController = TextEditingController();
+  final TextEditingController _complementoController = TextEditingController();
+  final TextEditingController _bairroController = TextEditingController();
+  final TextEditingController _cidadeController = TextEditingController();
+  String? _estadoSelecionado;
+  final _mascaraCep = MaskTextInputFormatter(mask: '#####-###', filter: {'#': RegExp(r'[0-9]')});
+
+  final TextEditingController _generoOutroController = TextEditingController();
 
   TipoListing _tipoSelecionado = TipoListing.moradia;
   String _tipoImovelSelecionado = '';
@@ -43,20 +57,44 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
   XFile? _comprovanteResidencia;
   XFile? _comprovanteIptu;
 
+  bool _generoOutroSelecionado = false;
+
   final List<XFile> _imagensSelecionadas = [];
   final ImagePicker _picker = ImagePicker();
 
   bool get _ehApartamento => _tipoImovelSelecionado == 'Apartamento';
 
+  // monta a string de endereco completa a partir dos campos estruturados --
+  // usada tanto pra geocodificar quanto pra exibir nas telas que so mostram
+  // o "endereco" como texto corrido
+  String get _enderecoCompleto {
+    final numero = _numeroController.text.trim();
+    final complemento = _complementoController.text.trim();
+    final partes = <String>[
+      '${_logradouroController.text.trim()}${numero.isNotEmpty ? ', $numero' : ''}',
+      if (complemento.isNotEmpty) complemento,
+      _bairroController.text.trim(),
+      '${_cidadeController.text.trim()} - ${_estadoSelecionado ?? ''}',
+      'CEP ${_cepController.text.trim()}',
+    ];
+    return partes.where((p) => p.trim().isNotEmpty).join(', ');
+  }
+
   @override
   void dispose() {
     _tituloController.dispose();
     _descricaoController.dispose();
-    _enderecoController.dispose();
     _precoController.dispose();
     _andarController.dispose();
     _iptuValorController.dispose();
     _tagPersonalizadaController.dispose();
+    _cepController.dispose();
+    _logradouroController.dispose();
+    _numeroController.dispose();
+    _complementoController.dispose();
+    _bairroController.dispose();
+    _cidadeController.dispose();
+    _generoOutroController.dispose();
     super.dispose();
   }
 
@@ -144,6 +182,20 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
       return;
     }
 
+    if (_cepController.text.trim().isEmpty ||
+        _logradouroController.text.trim().isEmpty ||
+        _numeroController.text.trim().isEmpty ||
+        _bairroController.text.trim().isEmpty ||
+        _cidadeController.text.trim().isEmpty ||
+        _estadoSelecionado == null) {
+      _mostrarErro('Preencha todos os campos do endereço (CEP, logradouro, número, bairro, cidade e estado).');
+      return;
+    }
+    if (_generoOutroSelecionado && _generoOutroController.text.trim().isEmpty) {
+      _mostrarErro('Especifique a preferência de gênero em "Outro", ou desmarque a opção.');
+      return;
+    }
+
     final ehMoradia = _tipoSelecionado == TipoListing.moradia;
     if (ehMoradia) {
       if (_tipoImovelSelecionado.isEmpty) {
@@ -171,7 +223,7 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
     setState(() => _salvando = true);
 
     try {
-      final enderecoFormatado = _enderecoController.text.trim();
+      final enderecoFormatado = _enderecoCompleto;
       double lat = -22.2528;
       double lng = -45.6976;
 
@@ -200,6 +252,12 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
         }
       }
 
+      final tagsFinal = List<String>.from(_tagsSelecionadas);
+      if (_generoOutroSelecionado) {
+        final custom = _generoOutroController.text.trim();
+        if (custom.isNotEmpty && !tagsFinal.contains(custom)) tagsFinal.add(custom);
+      }
+
       final novoImovel = Imovel(
         id: docRef.id,
         titulo: _tituloController.text.trim(),
@@ -207,10 +265,17 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
         preco: double.tryParse(_precoController.text.replaceAll(',', '.')) ?? 0.0,
         posicao: LatLng(lat, lng),
         tipo: _tipoSelecionado,
-        tags: _tagsSelecionadas,
+        tags: tagsFinal,
         endereco: enderecoFormatado,
         fotos: urlsImagens,
         donoUid: FirebaseAuth.instance.currentUser?.uid ?? '',
+        cep: _cepController.text.trim(),
+        logradouro: _logradouroController.text.trim(),
+        numero: _numeroController.text.trim(),
+        complemento: _complementoController.text.trim(),
+        bairro: _bairroController.text.trim(),
+        cidade: _cidadeController.text.trim(),
+        estado: _estadoSelecionado ?? '',
         tipoImovel: ehMoradia ? _tipoImovelSelecionado : '',
         andar: (ehMoradia && _ehApartamento) ? _andarController.text.trim() : '',
         comprovanteResidenciaUrl: comprovanteResidenciaUrl,
@@ -307,12 +372,101 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
               ),
               const SizedBox(height: 16),
 
+              Text('Endereço', style: AppTextStyles.captionBold.copyWith(color: isDark ? Colors.white70 : Colors.black87)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: _buildTextField(
+                      controller: _cepController,
+                      label: 'CEP',
+                      icon: Icons.markunread_mailbox_outlined,
+                      isDark: isDark,
+                      keyboardType: TextInputType.number,
+                      formatters: [_mascaraCep],
+                      validator: (val) => val!.isEmpty ? 'Informe o CEP' : null,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               _buildTextField(
-                controller: _enderecoController,
-                label: 'Endereço Completo',
-                icon: Icons.location_on_outlined,
+                controller: _logradouroController,
+                label: 'Logradouro (rua/avenida)',
+                icon: Icons.signpost_outlined,
                 isDark: isDark,
-                validator: (val) => val!.isEmpty ? 'Informe o endereço' : null,
+                validator: (val) => val!.isEmpty ? 'Informe o logradouro' : null,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _buildTextField(
+                      controller: _numeroController,
+                      label: 'Número',
+                      icon: Icons.pin_outlined,
+                      isDark: isDark,
+                      keyboardType: TextInputType.number,
+                      validator: (val) => val!.isEmpty ? 'Informe o número' : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildTextField(
+                      controller: _complementoController,
+                      label: 'Complemento (opcional)',
+                      icon: Icons.apartment_outlined,
+                      isDark: isDark,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildTextField(
+                controller: _bairroController,
+                label: 'Bairro',
+                icon: Icons.holiday_village_outlined,
+                isDark: isDark,
+                validator: (val) => val!.isEmpty ? 'Informe o bairro' : null,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: _buildTextField(
+                      controller: _cidadeController,
+                      label: 'Cidade',
+                      icon: Icons.location_city_rounded,
+                      isDark: isDark,
+                      validator: (val) => val!.isEmpty ? 'Informe a cidade' : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _estadoSelecionado,
+                      isExpanded: true,
+                      style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                      dropdownColor: isDark ? corCardEscuro : Colors.white,
+                      decoration: InputDecoration(
+                        labelText: 'UF',
+                        labelStyle: TextStyle(color: isDark ? Colors.white54 : Colors.black54),
+                        filled: true,
+                        fillColor: isDark ? corCardEscuro : Colors.white,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      ),
+                      items: estadosBrasileiros
+                          .map((uf) => DropdownMenuItem(value: uf, child: Text(uf)))
+                          .toList(),
+                      onChanged: (val) => setState(() => _estadoSelecionado = val),
+                      validator: (val) => val == null ? 'UF' : null,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
 
@@ -448,7 +602,7 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
                 const SizedBox(height: 16),
                 _buildGrupoDeTags(isDark, 'Pontos de atenção', tagsNegativas),
                 const SizedBox(height: 16),
-                _buildGrupoDeTags(isDark, 'Preferência de gênero', tagsPreferenciaGenero),
+                _buildGrupoGenero(isDark),
                 const SizedBox(height: 16),
                 Text('Outra característica', style: AppTextStyles.captionBold.copyWith(color: isDark ? Colors.white70 : Colors.black87)),
                 const SizedBox(height: 8),
@@ -525,6 +679,61 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
             );
           }).toList(),
         ),
+      ],
+    );
+  }
+
+  // igual ao _buildGrupoDeTags, mas com um chip "Outro" a mais que revela um
+  // campo de texto -- o que for digitado ali vira a tag de verdade na hora de salvar
+  Widget _buildGrupoGenero(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Preferência de gênero', style: AppTextStyles.captionBold.copyWith(color: isDark ? Colors.white70 : Colors.black87)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ...tagsPreferenciaGenero.map((tag) {
+              final selecionado = _tagsSelecionadas.contains(tag);
+              return FilterChip(
+                label: Text(tag),
+                selected: selecionado,
+                selectedColor: corPrimaria.withAlpha(50),
+                checkmarkColor: isDark ? Colors.white : corPrimaria,
+                backgroundColor: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20),
+                labelStyle: TextStyle(
+                  color: selecionado ? (isDark ? Colors.white : corPrimaria) : (isDark ? Colors.white60 : Colors.black87),
+                ),
+                onSelected: (_) => _alternarTag(tag),
+              );
+            }),
+            FilterChip(
+              label: const Text('Outro'),
+              selected: _generoOutroSelecionado,
+              selectedColor: corPrimaria.withAlpha(50),
+              checkmarkColor: isDark ? Colors.white : corPrimaria,
+              backgroundColor: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20),
+              labelStyle: TextStyle(
+                color: _generoOutroSelecionado ? (isDark ? Colors.white : corPrimaria) : (isDark ? Colors.white60 : Colors.black87),
+              ),
+              onSelected: (v) => setState(() {
+                _generoOutroSelecionado = v;
+                if (!v) _generoOutroController.clear();
+              }),
+            ),
+          ],
+        ),
+        if (_generoOutroSelecionado) ...[
+          const SizedBox(height: 8),
+          _buildTextField(
+            controller: _generoOutroController,
+            label: 'Especifique a preferência',
+            icon: Icons.edit_outlined,
+            isDark: isDark,
+          ),
+        ],
       ],
     );
   }
@@ -652,11 +861,13 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
     int maxLines = 1,
     TextInputType keyboardType = TextInputType.text,
     String? Function(String?)? validator,
+    List<TextInputFormatter>? formatters,
   }) {
     return TextFormField(
       controller: controller,
       maxLines: maxLines,
       keyboardType: keyboardType,
+      inputFormatters: formatters,
       style: TextStyle(color: isDark ? Colors.white : Colors.black87),
       validator: validator,
       decoration: InputDecoration(

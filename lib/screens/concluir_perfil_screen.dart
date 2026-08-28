@@ -4,7 +4,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
 import '../main.dart';
 import '../models/usuario.dart';
-import '../services/auth_service.dart';
 import '../services/busca_service.dart';
 import '../services/imgbb_service.dart';
 import '../services/imobiliaria_service.dart';
@@ -49,14 +48,10 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
   final _respCpfController = TextEditingController();
   final _respEmailController = TextEditingController();
 
-  final _telefoneController = TextEditingController();
-  final _codigoOtpController = TextEditingController();
-
   final _mascaraCpf = MaskTextInputFormatter(mask: '###.###.###-##', filter: {'#': RegExp(r'[0-9]')});
   final _mascaraCnpj = MaskTextInputFormatter(mask: '##.###.###/####-##', filter: {'#': RegExp(r'[0-9]')});
   final _mascaraCnpjEmpresa = MaskTextInputFormatter(mask: '##.###.###/####-##', filter: {'#': RegExp(r'[0-9]')});
   final _mascaraCpfResponsavel = MaskTextInputFormatter(mask: '###.###.###-##', filter: {'#': RegExp(r'[0-9]')});
-  final _mascaraTelefone = MaskTextInputFormatter(mask: '(##) #####-####', filter: {'#': RegExp(r'[0-9]')});
 
   String? _tipoSelecionado;
   String _subtipoCorretor = '';
@@ -66,10 +61,6 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
   String _fotoUrl = '';
   bool _enviandoFoto = false;
   bool _salvando = false;
-
-  bool _telefoneVerificado = false;
-  bool _enviandoCodigo = false;
-  String? _verificationId;
 
   // proprietario e corretor autonomo podem escolher CPF ou CNPJ; corretor de
   // empresa tem o CNPJ na secao da empresa, entao o documento pessoal dele e sempre CPF
@@ -94,8 +85,6 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
     _tipoSelecionado = p.tipoUsuario.isNotEmpty ? p.tipoUsuario : null;
     _subtipoCorretor = p.subtipoCorretor;
     _generoSelecionado = p.genero;
-    _telefoneController.text = p.telefone;
-    _telefoneVerificado = p.telefoneVerificado;
     _documentoEhCnpj = p.cnpj.isNotEmpty;
     _documentoController.text = _documentoEhCnpj ? p.cnpj : p.cpf;
     if (p.dataNascimento.isNotEmpty) {
@@ -127,133 +116,12 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
     _respEnderecoController.dispose();
     _respCpfController.dispose();
     _respEmailController.dispose();
-    _telefoneController.dispose();
-    _codigoOtpController.dispose();
     super.dispose();
   }
 
   void _mostrarErro(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: corErro),
-    );
-  }
-
-  // numero digitado e so DDD+numero -- prefixa +55 (Brasil) pro Firebase Phone Auth
-  String get _telefoneE164 {
-    final digitos = _telefoneController.text.replaceAll(RegExp(r'\D'), '');
-    return '+55$digitos';
-  }
-
-  Future<void> _enviarCodigoVerificacao() async {
-    final digitos = _telefoneController.text.replaceAll(RegExp(r'\D'), '');
-    if (digitos.length < 10) {
-      _mostrarErro('Informe um telefone válido (com DDD).');
-      return;
-    }
-
-    setState(() => _enviandoCodigo = true);
-    try {
-      await AuthService.instance.verificarTelefone(
-        numeroCompleto: _telefoneE164,
-        aoCodigoEnviado: (verificationId) {
-          _verificationId = verificationId;
-          if (mounted) {
-            setState(() => _enviandoCodigo = false);
-            _mostrarFolhaCodigoOtp();
-          }
-        },
-        aoFalhar: (erro) {
-          if (mounted) {
-            setState(() => _enviandoCodigo = false);
-            _mostrarErro(erro);
-          }
-        },
-        aoVerificarAutomaticamente: () {
-          if (mounted) {
-            setState(() {
-              _telefoneVerificado = true;
-              _enviandoCodigo = false;
-            });
-          }
-        },
-      );
-    } catch (e) {
-      if (mounted) {
-        setState(() => _enviandoCodigo = false);
-        _mostrarErro('Erro ao enviar código: $e');
-      }
-    }
-  }
-
-  void _mostrarFolhaCodigoOtp() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    _codigoOtpController.clear();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: isDark ? corCardEscuro : Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
-            bool confirmando = false;
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 24, right: 24, top: 24,
-                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 24,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Digite o código enviado por SMS',
-                    style: AppTextStyles.heading3.copyWith(color: isDark ? Colors.white : Colors.black87),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _telefoneE164,
-                    style: AppTextStyles.caption.copyWith(color: isDark ? Colors.white38 : Colors.grey),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: _codigoOtpController,
-                    keyboardType: TextInputType.number,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 22, letterSpacing: 8),
-                    decoration: InputDecoration(
-                      hintText: '000000',
-                      filled: true,
-                      fillColor: isDark ? Colors.white.withAlpha(8) : Colors.grey.withAlpha(15),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  AnimatedGradientButton(
-                    label: 'Confirmar',
-                    isLoading: confirmando,
-                    onTap: () async {
-                      final codigo = _codigoOtpController.text.trim();
-                      if (codigo.isEmpty || _verificationId == null) return;
-                      setSheetState(() => confirmando = true);
-                      try {
-                        await AuthService.instance.confirmarCodigoTelefone(_verificationId!, codigo);
-                        if (mounted) setState(() => _telefoneVerificado = true);
-                        if (sheetContext.mounted) Navigator.pop(sheetContext);
-                      } catch (e) {
-                        setSheetState(() => confirmando = false);
-                        if (mounted) _mostrarErro('Código inválido ou expirado.');
-                      }
-                    },
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 
@@ -293,8 +161,6 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
     if (_tipoSelecionado == null) return 'Selecione o tipo de conta.';
 
     if (_generoSelecionado.isEmpty) return 'Selecione seu gênero.';
-
-    if (!_telefoneVerificado) return 'Verifique seu número de telefone por SMS.';
 
     if (_dataNascimento == null) return 'Informe a data de nascimento.';
 
@@ -381,8 +247,6 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
         fotoUrl: _fotoUrl,
         perfilCompleto: true,
         genero: _generoSelecionado,
-        telefone: _telefoneController.text.trim(),
-        telefoneVerificado: _telefoneVerificado,
         cidade: _cidadeController.text.trim(),
         cpf: _documentoEhCnpj ? '' : documento,
         cnpj: _documentoEhCnpj ? documento : '',
@@ -531,61 +395,6 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
                     );
                   }).toList(),
                 ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            _secao(
-              isDark: isDark,
-              titulo: 'Telefone',
-              icone: Icons.smartphone_rounded,
-              filhos: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _campo(
-                        controller: _telefoneController,
-                        label: 'Telefone com DDD',
-                        icon: Icons.phone_outlined,
-                        isDark: isDark,
-                        keyboardType: TextInputType.phone,
-                        formatters: [_mascaraTelefone],
-                        onChanged: (_) {
-                          if (_telefoneVerificado) setState(() => _telefoneVerificado = false);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      height: 56,
-                      child: ElevatedButton(
-                        onPressed: (_telefoneVerificado || _enviandoCodigo) ? null : _enviarCodigoVerificacao,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _telefoneVerificado ? corSucesso : corPrimaria,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        child: _enviandoCodigo
-                            ? const SizedBox(
-                                width: 18, height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : Icon(_telefoneVerificado ? Icons.check_rounded : Icons.sms_outlined),
-                      ),
-                    ),
-                  ],
-                ),
-                if (_telefoneVerificado) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.verified_rounded, size: 14, color: corSucesso),
-                      const SizedBox(width: 4),
-                      Text('Telefone verificado', style: AppTextStyles.caption.copyWith(color: corSucesso)),
-                    ],
-                  ),
-                ],
               ],
             ),
             const SizedBox(height: 20),

@@ -14,6 +14,7 @@ import '../services/usuario_service.dart';
 import '../utils/chamada.dart';
 import '../widgets/avatar_widget.dart';
 import 'concluir_perfil_screen.dart';
+import 'perfil_publico_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String imovelTitulo;
@@ -230,6 +231,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     iniciarChamadaDeVoz(context, meuUid: uid, meuNome: nome, outroUid: widget.donoUid);
   }
 
+  void _abrirPerfilDoContato() {
+    if (_contato == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => PerfilPublicoScreen(pessoa: _contato)),
+    );
+  }
+
   Future<void> _abrirConcluirPerfil() async {
     if (_meuPerfil == null) return;
     final atualizado = await Navigator.push<Usuario>(
@@ -262,39 +271,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         elevation: 1,
         iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black87),
         titleSpacing: 0,
-        title: Row(
-          children: [
-            AvatarWidget(
-              nome: (_contato?.nome.isNotEmpty ?? false) ? _contato!.nome : '?',
-              fotoUrl: _contato?.fotoUrl,
-              size: 36,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    (_contato?.nome.isNotEmpty ?? false) ? _contato!.nome : 'Proprietário',
-                    style: AppTextStyles.bodyBold.copyWith(
-                      color: isDark ? Colors.white : Colors.black87,
-                      fontSize: 15,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (widget.imovelTitulo.isNotEmpty)
+        title: InkWell(
+          onTap: _contato == null ? null : _abrirPerfilDoContato,
+          borderRadius: BorderRadius.circular(12),
+          child: Row(
+            children: [
+              AvatarWidget(
+                nome: (_contato?.nome.isNotEmpty ?? false) ? _contato!.nome : '?',
+                fotoUrl: _contato?.fotoUrl,
+                size: 36,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      'Ref: ${widget.imovelTitulo}',
-                      style: AppTextStyles.caption.copyWith(color: corPrimaria, fontSize: 11),
+                      (_contato?.nome.isNotEmpty ?? false) ? _contato!.nome : 'Proprietário',
+                      style: AppTextStyles.bodyBold.copyWith(
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontSize: 15,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                ],
+                    if (widget.imovelTitulo.isNotEmpty)
+                      Text(
+                        'Ref: ${widget.imovelTitulo}',
+                        style: AppTextStyles.caption.copyWith(color: corPrimaria, fontSize: 11),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           IconButton(

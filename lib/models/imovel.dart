@@ -7,11 +7,17 @@ enum TipoListing { moradia, evento }
 const List<String> tiposImovelDisponiveis = ['Casa', 'Apartamento', 'República', 'Pensão', 'Kitnet'];
 
 // tags organizadas por categoria, usadas na criacao do anuncio e nos filtros do mapa
-const List<String> tagsPositivas = ['Mobiliado', 'Garagem', 'Com Wi-Fi', 'Suíte', 'Perto da Facul'];
+const List<String> tagsPositivas = ['Mobiliado', 'Garagem', 'Com Wi-Fi', 'Suíte', 'Elevador', 'Perto da Facul'];
 const List<String> tagsNegativas = ['Sem elevador'];
 const List<String> tagsPreferenciaGenero = ['Exclusivo para Mulheres', 'Exclusivo para Homens'];
 
 const List<String> tagsDisponiveis = [...tagsPositivas, ...tagsNegativas, ...tagsPreferenciaGenero];
+
+// siglas dos estados brasileiros, usadas no campo "Estado" do endereco estruturado
+const List<String> estadosBrasileiros = [
+  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',
+  'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
+];
 
 class Imovel {
   final String id;
@@ -21,9 +27,18 @@ class Imovel {
   final LatLng posicao;
   final TipoListing tipo;
   final List<String> tags;
-  final String endereco;
+  final String endereco; // string completa, composta a partir dos campos abaixo
   final List<String> fotos;
   final String donoUid;
+
+  // endereco estruturado (exigido por completo no formulario, exceto complemento)
+  final String cep;
+  final String logradouro;
+  final String numero;
+  final String complemento;
+  final String bairro;
+  final String cidade;
+  final String estado;
 
   // campos do novo fluxo de cadastro (so preenchidos quando tipo == moradia)
   final String tipoImovel;
@@ -46,6 +61,13 @@ class Imovel {
     required this.endereco,
     this.fotos = const [],
     this.donoUid = '',
+    this.cep = '',
+    this.logradouro = '',
+    this.numero = '',
+    this.complemento = '',
+    this.bairro = '',
+    this.cidade = '',
+    this.estado = '',
     this.tipoImovel = '',
     this.andar = '',
     this.comprovanteResidenciaUrl = '',
@@ -83,6 +105,13 @@ class Imovel {
       endereco: map['endereco'] ?? '',
       fotos: List<String>.from(map['fotos'] ?? []),
       donoUid: map['donoUid'] ?? '',
+      cep: map['cep'] ?? '',
+      logradouro: map['logradouro'] ?? '',
+      numero: map['numero'] ?? '',
+      complemento: map['complemento'] ?? '',
+      bairro: map['bairro'] ?? '',
+      cidade: map['cidade'] ?? '',
+      estado: map['estado'] ?? '',
       tipoImovel: map['tipoImovel'] ?? '',
       andar: map['andar'] ?? '',
       comprovanteResidenciaUrl: map['comprovanteResidenciaUrl'] ?? '',
@@ -105,6 +134,13 @@ class Imovel {
       'endereco': endereco,
       'fotos': fotos,
       'donoUid': donoUid,
+      'cep': cep,
+      'logradouro': logradouro,
+      'numero': numero,
+      'complemento': complemento,
+      'bairro': bairro,
+      'cidade': cidade,
+      'estado': estado,
       'tipoImovel': tipoImovel,
       'andar': andar,
       'comprovanteResidenciaUrl': comprovanteResidenciaUrl,
