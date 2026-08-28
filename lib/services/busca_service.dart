@@ -26,6 +26,11 @@ final List<String> locaisConhecidosParaCidade = _locaisConhecidos
     .map((l) => l.nome)
     .toList();
 
+// mesma lista, mas com a coordenada junto -- usada no seletor de destino da rota
+final List<SugestaoBusca> locaisConhecidosGeral = _locaisConhecidos
+    .map((l) => SugestaoBusca(texto: l.nome, tipo: l.tipo, destino: l.posicao))
+    .toList();
+
 const List<_LocalConhecido> _locaisConhecidos = [
   _LocalConhecido('Inatel', TipoSugestao.faculdade, LatLng(-22.2528, -45.6976)),
   _LocalConhecido('Santa Rita do Sapucaí, MG', TipoSugestao.cidade, LatLng(-22.2528, -45.6976)),

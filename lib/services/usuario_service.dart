@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/usuario.dart';
 import '../utils/moderacao.dart';
+import 'perfil_publico_service.dart';
 
 class UsuarioService {
   UsuarioService._();
@@ -20,8 +21,8 @@ class UsuarioService {
     required String uid,
     required String nome,
     required String email,
-  }) {
-    return _colecao.doc(uid).set({
+  }) async {
+    await _colecao.doc(uid).set({
       'nome': nome,
       'nomeBusca': normalizarNome(nome),
       'email': email,
@@ -30,33 +31,45 @@ class UsuarioService {
       'perfilCompleto': false,
       'dataCriacao': FieldValue.serverTimestamp(),
     });
+    await PerfilPublicoService.instance.sincronizar(
+      Usuario(uid: uid, nome: nome, email: email),
+    );
   }
 
-  // true se ja existe outro usuario com esse nome (comparacao normalizada)
+  // true se ja existe outro usuario com esse nome (comparacao normalizada) --
+  // consulta a colecao publica, ja que "usuarios" so o proprio dono pode ler
   Future<bool> nomeJaExiste(String nome, {String? ignorarUid}) async {
     final normalizado = normalizarNome(nome);
-    final query = await _colecao.where('nomeBusca', isEqualTo: normalizado).get();
+    final query = await FirebaseFirestore.instance
+        .collection('perfisPublicos')
+        .where('nomeBusca', isEqualTo: normalizado)
+        .get();
     return query.docs.any((doc) => doc.id != ignorarUid);
   }
 
-  Future<void> atualizarPerfil(String uid, {String? nome, String? fotoUrl}) {
+  Future<void> atualizarPerfil(String uid, {String? nome, String? fotoUrl}) async {
     final dados = <String, dynamic>{};
     if (nome != null) {
       dados['nome'] = nome;
       dados['nomeBusca'] = normalizarNome(nome);
     }
     if (fotoUrl != null) dados['fotoUrl'] = fotoUrl;
-    if (dados.isEmpty) return Future.value();
-    return _colecao.doc(uid).update(dados);
+    if (dados.isEmpty) return;
+    await _colecao.doc(uid).update(dados);
+
+    final atualizado = await buscarPorUid(uid);
+    if (atualizado != null) await PerfilPublicoService.instance.sincronizar(atualizado);
   }
 
   // grava o formulario inteiro de "concluir perfil" de uma vez
-  Future<void> completarPerfil(Usuario usuario) {
-    return _colecao.doc(usuario.uid).update(usuario.toMap());
+  Future<void> completarPerfil(Usuario usuario) async {
+    await _colecao.doc(usuario.uid).update(usuario.toMap());
+    await PerfilPublicoService.instance.sincronizar(usuario);
   }
 
   // marca "visto por ultimo agora" -- usado pro indicador de atividade
-  Future<void> atualizarUltimoAcesso(String uid) {
-    return _colecao.doc(uid).update({'ultimoAcesso': FieldValue.serverTimestamp()});
+  Future<void> atualizarUltimoAcesso(String uid) async {
+    await _colecao.doc(uid).update({'ultimoAcesso': FieldValue.serverTimestamp()});
+    await PerfilPublicoService.instance.atualizarUltimoAcesso(uid);
   }
 }
