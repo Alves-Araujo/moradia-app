@@ -12,7 +12,36 @@
           "package_name": "com.example.moradia_app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "890336956924-9ivan7tfs8hef3vsi97act8pauhfqfnb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.moradia_app",
+            "certificate_hash": "072ae00e72b524035867d1577b329fa248f7bc0d"
+          }
+        },
+        {
+          "client_id": "890336956924-d27lenob7644as2j7r9d1kinf4dupfhu.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.moradia_app",
+            "certificate_hash": "0e5a68a0ed70b7c45b9a780c70f8824c0cd4a93e"
+          }
+        },
+        {
+          "client_id": "890336956924-n3prg5qo839lfl6tbvfmdgagciiq6bvv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.moradia_app",
+            "certificate_hash": "1201ff342e687bdf5248db78c7b6e89ad1c6b412"
+          }
+        },
+        {
+          "client_id": "890336956924-lnokgj8k18f9abqk1g9sms5jujbkg6lu.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDL0aaR1gdW-x3oiH4gxZVNMozISryp5CI"
@@ -20,7 +49,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "890336956924-lnokgj8k18f9abqk1g9sms5jujbkg6lu.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "890336956924-ahtaih2vkkoncvv8prtgducef4s8b49j.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.moradiaApp"
+              }
+            }
+          ]
         }
       }
     }
