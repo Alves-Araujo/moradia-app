@@ -20,7 +20,7 @@
 
         <!-- AQUI ESTÁ A SUA CHAVE COLADA -->
         <meta-data android:name="com.google.android.geo.API_KEY"
-                   android:value="AIzaSyCDSwKb86bQTu7rwcwzW0r1oRZY9U-RNrQ"/>
+                   android:value="AIzaSyDL0aaR1gdW-x3oiH4gxZVNMozISryp5CI"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
