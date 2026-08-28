@@ -5,11 +5,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:zego_uikit_prebuilt_call/zego_uikit_prebuilt_call.dart';
 import '../main.dart';
+import '../models/perfil_publico.dart';
 import '../models/usuario.dart';
+import '../services/perfil_publico_service.dart';
 import '../services/storage_service.dart';
 import '../services/usuario_service.dart';
+import '../utils/chamada.dart';
 import '../widgets/avatar_widget.dart';
 import 'concluir_perfil_screen.dart';
 
@@ -36,11 +38,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final AudioPlayer _player = AudioPlayer();
 
   // cache de perfis dos remetentes, pra mostrar o avatar ao lado das mensagens
-  final Map<String, Usuario> _perfisCache = {};
+  final Map<String, PerfilPublico> _perfisCache = {};
   final Set<String> _buscandoPerfil = {};
 
   Usuario? _meuPerfil;
-  Usuario? _contato;
+  PerfilPublico? _contato;
 
   bool _gravandoAudio = false;
   bool _enviandoMidia = false;
@@ -69,15 +71,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   Future<void> _carregarContato() async {
     if (widget.donoUid.isEmpty) return;
-    final perfil = await UsuarioService.instance.buscarPorUid(widget.donoUid);
+    final perfil = await PerfilPublicoService.instance.buscarPorUid(widget.donoUid);
     if (perfil != null && mounted) setState(() => _contato = perfil);
   }
 
-  // busca sob demanda o perfil de quem mandou a mensagem (uma vez por uid)
+  // busca sob demanda o perfil de quem mandou a mensagem (uma vez por uid) --
+  // le da colecao publica, ja que "usuarios" so o proprio dono pode ler
   void _carregarPerfilRemetente(String uid) {
     if (uid.isEmpty || _perfisCache.containsKey(uid) || _buscandoPerfil.contains(uid)) return;
     _buscandoPerfil.add(uid);
-    UsuarioService.instance.buscarPorUid(uid).then((perfil) {
+    PerfilPublicoService.instance.buscarPorUid(uid).then((perfil) {
       if (perfil != null && mounted) {
         setState(() => _perfisCache[uid] = perfil);
       }
@@ -224,23 +227,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void _iniciarChamadaDeVoz() {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anonimo';
     final nome = (_meuPerfil?.nome.isNotEmpty ?? false) ? _meuPerfil!.nome : 'Usuário Hive';
-    // callID so pode ter letras/numeros/underline -- um por conversa, assim
-    // os dois lados do chat entram na mesma sala
-    final callId = 'chat_${widget.imovelId}'.replaceAll(RegExp(r'[^A-Za-z0-9_]'), '_');
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ZegoUIKitPrebuiltCall(
-          appID: zegoAppId,
-          appSign: zegoAppSign,
-          userID: uid,
-          userName: nome,
-          callID: callId,
-          config: ZegoUIKitPrebuiltCallConfig.oneOnOneVoiceCall(),
-        ),
-      ),
-    );
+    iniciarChamadaDeVoz(context, meuUid: uid, meuNome: nome, outroUid: widget.donoUid);
   }
 
   Future<void> _abrirConcluirPerfil() async {
@@ -297,12 +284,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  Text(
-                    'Ref: ${widget.imovelTitulo}',
-                    style: AppTextStyles.caption.copyWith(color: corPrimaria, fontSize: 11),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  if (widget.imovelTitulo.isNotEmpty)
+                    Text(
+                      'Ref: ${widget.imovelTitulo}',
+                      style: AppTextStyles.caption.copyWith(color: corPrimaria, fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                 ],
               ),
             ),
@@ -348,7 +336,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     final remetenteUid = msg['remetenteUid'] as String? ?? '';
                     final tipo = msg['tipo'] as String? ?? 'texto';
 
-                    Usuario? perfilRemetente;
+                    PerfilPublico? perfilRemetente;
                     if (!isMinha && remetenteUid.isNotEmpty) {
                       _carregarPerfilRemetente(remetenteUid);
                       perfilRemetente = _perfisCache[remetenteUid];

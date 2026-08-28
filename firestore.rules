@@ -3,9 +3,37 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // perfil do usuario -- so o dono le e escreve o proprio
+    // perfil do usuario (dados sensiveis: cpf, endereco, telefone...) -- so
+    // o dono le e escreve o proprio
     match /usuarios/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // avaliacoes recebidas -- qualquer logado le e cria a sua, ninguem edita
+      // a de outra pessoa depois de publicada
+      match /avaliacoes/{avaliacaoId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.resource.data.avaliadorUid == request.auth.uid;
+      }
+    }
+
+    // versao publica do perfil (nome, foto, tipo de conta...) -- sem dado
+    // sensivel, entao qualquer logado pode ler (busca, chat, vitrine...).
+    // escrita liberada pra qualquer logado tambem, pois a confirmacao de
+    // vinculo com a imobiliaria e feita por uma pessoa diferente do dono
+    match /perfisPublicos/{uid} {
+      allow read, write: if request.auth != null;
+    }
+
+    // imobiliarias -- publicas pra leitura/busca; criacao/edicao (vinculo,
+    // confirmacao) acontece por qualquer logado, sem cloud function
+    match /imobiliarias/{imobiliariaId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null;
+
+      match /avaliacoes/{avaliacaoId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.resource.data.avaliadorUid == request.auth.uid;
+      }
     }
 
     function perfilCompleto() {

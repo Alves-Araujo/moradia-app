@@ -35,6 +35,10 @@ class Usuario {
   final String emailEmpresa;
   final bool emailEmpresaVerificado;
 
+  // vinculo com a imobiliaria (so corretor de empresa)
+  final String imobiliariaId;
+  final bool vinculoConfirmado;
+
   Usuario({
     required this.uid,
     required this.nome,
@@ -63,6 +67,8 @@ class Usuario {
     this.enderecoEmpresa = '',
     this.emailEmpresa = '',
     this.emailEmpresaVerificado = false,
+    this.imobiliariaId = '',
+    this.vinculoConfirmado = false,
   });
 
   factory Usuario.fromMap(Map<String, dynamic> map, String uid) {
@@ -94,6 +100,8 @@ class Usuario {
       enderecoEmpresa: map['enderecoEmpresa'] ?? '',
       emailEmpresa: map['emailEmpresa'] ?? '',
       emailEmpresaVerificado: map['emailEmpresaVerificado'] ?? false,
+      imobiliariaId: map['imobiliariaId'] ?? '',
+      vinculoConfirmado: map['vinculoConfirmado'] ?? false,
     );
   }
 
@@ -125,6 +133,8 @@ class Usuario {
       'enderecoEmpresa': enderecoEmpresa,
       'emailEmpresa': emailEmpresa,
       'emailEmpresaVerificado': emailEmpresaVerificado,
+      'imobiliariaId': imobiliariaId,
+      'vinculoConfirmado': vinculoConfirmado,
     };
   }
 }

@@ -6,12 +6,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'concluir_perfil_screen.dart';
+import 'detalhes_imovel_screen.dart';
 import 'novo_anuncio_screen.dart';
 import '../main.dart';
 import '../models/imovel.dart';
 import '../models/filtro_state.dart';
 import '../models/usuario.dart';
+import '../services/auth_service.dart';
 import '../services/busca_service.dart';
+import '../services/imobiliaria_service.dart';
 import '../services/rota_service.dart';
 import '../services/usuario_service.dart';
 import '../widgets/avatar_widget.dart';
@@ -51,11 +54,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
 
   List<Imovel> _imoveisDoBanco = [];
 
-  final RotaService _rotaService = RotaService(googleMapsApiKey);
-  Set<Polyline> _rotas = {};
-  RotaResultado? _rotaAtual;
-  bool _carregandoRota = false;
-
   late VoidCallback _temaListener;
   late VoidCallback _filtroListener;
 
@@ -70,6 +68,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     _carregarDadosUsuarioLogado();
     _carregarEstilosDoAsset();
     _obterLocalizacaoReal(); // ja dispara a busca do gps ao abrir a tela
+    _verificarVinculoPendente();
 
     _animIniciaisController = AnimationController(
       vsync: this,
@@ -165,6 +164,59 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     }
   }
 
+  // se o e-mail dessa conta bate com o de uma imobiliaria ainda pendente
+  // (algum corretor se vinculou a ela), oferece a confirmacao aqui
+  Future<void> _verificarVinculoPendente() async {
+    final email = FirebaseAuth.instance.currentUser?.email;
+    if (email == null) return;
+    final pendente = await ImobiliariaService.instance.buscarPendentePorEmail(email);
+    if (pendente == null || !mounted) return;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? corCardEscuro : Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Icon(Icons.apartment_rounded, color: corPrimaria, size: 40),
+              const SizedBox(height: 16),
+              Text(
+                'Você é responsável por "${pendente.nome}"?',
+                style: AppTextStyles.heading3.copyWith(color: isDark ? Colors.white : Colors.black87),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Um ou mais corretores pediram vínculo com essa imobiliária usando esse e-mail. Confirme pra liberar o perfil público deles.',
+                style: AppTextStyles.caption.copyWith(color: isDark ? Colors.white54 : Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              AnimatedGradientButton(
+                label: 'Confirmar vínculo',
+                onTap: () async {
+                  await ImobiliariaService.instance.confirmar(pendente.id);
+                  if (sheetContext.mounted) Navigator.pop(sheetContext);
+                },
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(sheetContext),
+                child: Text('Agora não', style: TextStyle(color: isDark ? Colors.white38 : Colors.grey)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _selecionarSugestao(SugestaoBusca sugestao) {
     _buscaController.text = sugestao.texto;
     _buscaFocusNode.unfocus();
@@ -223,77 +275,18 @@ class _CentroDoMapaState extends State<CentroDoMapa>
             title: item.titulo,
             snippet: item.descricao,
           ),
-          onTap: isEvento ? null : () => _tracarRotaAteInatel(item),
+          onTap: () => _abrirDetalhesImovel(item),
         );
       }).toSet();
     });
   }
 
-  // busca a rota de carro do imovel ate o inatel e desenha no mapa
-  Future<void> _tracarRotaAteInatel(Imovel imovel) async {
-    setState(() => _carregandoRota = true);
-    try {
-      final resultado = await _rotaService.buscarRota(
-        origem: imovel.posicao,
-        destino: posicaoInatel,
-      );
-
-      if (!mounted) return;
-
-      if (resultado == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Não foi possível calcular a rota até o Inatel.'),
-            backgroundColor: corErro,
-          ),
-        );
-        return;
-      }
-
-      setState(() {
-        _rotaAtual = resultado;
-        _rotas = {
-          Polyline(
-            polylineId: const PolylineId('rota_inatel'),
-            points: resultado.pontos,
-            color: corPrimaria,
-            width: 5,
-          ),
-        };
-      });
-
-      _mapController?.animateCamera(
-        CameraUpdate.newLatLngBounds(_calcularBounds(resultado.pontos), 60),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao buscar rota: $e'), backgroundColor: corErro),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _carregandoRota = false);
-    }
-  }
-
-  void _limparRota() {
-    setState(() {
-      _rotas = {};
-      _rotaAtual = null;
-    });
-  }
-
-  LatLngBounds _calcularBounds(List<LatLng> pontos) {
-    double? minLat, maxLat, minLng, maxLng;
-    for (final p in pontos) {
-      minLat = (minLat == null || p.latitude < minLat) ? p.latitude : minLat;
-      maxLat = (maxLat == null || p.latitude > maxLat) ? p.latitude : maxLat;
-      minLng = (minLng == null || p.longitude < minLng) ? p.longitude : minLng;
-      maxLng = (maxLng == null || p.longitude > maxLng) ? p.longitude : maxLng;
-    }
-    return LatLngBounds(
-      southwest: LatLng(minLat!, minLng!),
-      northeast: LatLng(maxLat!, maxLng!),
+  // agora o toque em qualquer marker (moradia ou evento) abre a pagina de
+  // detalhes -- o calculo de rota mora la dentro, nao mais aqui no mapa
+  void _abrirDetalhesImovel(Imovel imovel) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DetalhesImovelScreen(imovel: imovel)),
     );
   }
 
@@ -554,9 +547,40 @@ class _CentroDoMapaState extends State<CentroDoMapa>
               setState(() => _perfilAtual = atualizado);
             }
           },
+          onSair: () {
+            Navigator.pop(sheetContext);
+            _confirmarLogout();
+          },
         );
       },
     );
+  }
+
+  // pede confirmacao, desloga do firebase e limpa a pilha de telas -- a
+  // AuthGate, la no main.dart, percebe sozinha que nao tem mais usuario e
+  // troca pra tela de login (mesmo mecanismo usado no resto do app; nao
+  // usamos rotas nomeadas em nenhum lugar, entao aqui tambem nao)
+  Future<void> _confirmarLogout() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final confirmou = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: isDark ? corCardEscuro : Colors.white,
+        title: const Text('Sair da conta?'),
+        content: const Text('Você vai precisar entrar de novo pra acessar o app.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Sair', style: TextStyle(color: corErro, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmou != true || !mounted) return;
+
+    await AuthService.instance.sair();
+    if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _mostrarConfiguracoes() {
@@ -660,6 +684,17 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                       const SizedBox(width: 12),
                       Expanded(child: _botaoModoMapa('Satélite', Icons.satellite_alt_rounded, isDark, setModalState)),
                     ],
+                  ),
+                  const SizedBox(height: 24),
+                  Divider(color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20)),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _confirmarLogout();
+                    },
+                    icon: const Icon(Icons.logout_rounded, color: corErro, size: 18),
+                    label: const Text('Sair da conta', style: TextStyle(color: corErro, fontWeight: FontWeight.w600)),
                   ),
                   ],
                 ),
@@ -779,7 +814,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
           markers: _marcadores,
-          polylines: _rotas,
           mapType: _modoMapaAtual == 'Satélite' ? MapType.satellite : MapType.normal,
           style: _estiloAtivo,
         ),
@@ -905,78 +939,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
           ),
         ),
 
-        if (_carregandoRota)
-          Positioned(
-            bottom: podeAnunciar ? 150 : 90,
-            left: 16,
-            right: 16,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: isDark ? corCardEscuro : Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withAlpha(isDark ? 60 : 20), blurRadius: 16, offset: const Offset(0, 6)),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 18, height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: corPrimaria),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'Calculando rota até o Inatel...',
-                    style: TextStyle(color: isDark ? Colors.white70 : Colors.black87),
-                  ),
-                ],
-              ),
-            ),
-          )
-        else if (_rotaAtual != null)
-          Positioned(
-            bottom: podeAnunciar ? 150 : 90,
-            left: 16,
-            right: 16,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: isDark ? corCardEscuro : Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withAlpha(isDark ? 60 : 20), blurRadius: 16, offset: const Offset(0, 6)),
-                ],
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.directions_car_rounded, color: corPrimaria),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Rota até o Inatel',
-                          style: AppTextStyles.captionBold.copyWith(color: isDark ? Colors.white : Colors.black87),
-                        ),
-                        Text(
-                          '${_rotaAtual!.distanciaTexto} · ${_rotaAtual!.duracaoTexto}',
-                          style: AppTextStyles.caption.copyWith(color: isDark ? Colors.white54 : Colors.grey),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.close_rounded, color: isDark ? Colors.white38 : Colors.grey),
-                    onPressed: _limparRota,
-                  ),
-                ],
-              ),
-            ),
-          ),
-
         // botao pra focar na localizacao do usuario
         Positioned(
           bottom: podeAnunciar ? 84 : 20, // Sobe se o botao de anunciar estiver visivel
@@ -1048,8 +1010,9 @@ class _CentroDoMapaState extends State<CentroDoMapa>
 class _PerfilPreview extends StatelessWidget {
   final Usuario perfil;
   final VoidCallback onConcluirPerfil;
+  final VoidCallback onSair;
 
-  const _PerfilPreview({required this.perfil, required this.onConcluirPerfil});
+  const _PerfilPreview({required this.perfil, required this.onConcluirPerfil, required this.onSair});
 
   String get _rotuloTipo {
     switch (perfil.tipoUsuario.toLowerCase()) {
@@ -1126,6 +1089,12 @@ class _PerfilPreview extends StatelessWidget {
           AnimatedGradientButton(
             label: perfil.perfilCompleto ? 'Editar Perfil' : 'Concluir Perfil',
             onTap: onConcluirPerfil,
+          ),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: onSair,
+            icon: const Icon(Icons.logout_rounded, color: corErro, size: 18),
+            label: const Text('Sair da conta', style: TextStyle(color: corErro, fontWeight: FontWeight.w600)),
           ),
         ],
       ),

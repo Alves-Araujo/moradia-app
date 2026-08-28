@@ -7,6 +7,7 @@ import '../models/usuario.dart';
 import '../services/auth_service.dart';
 import '../services/busca_service.dart';
 import '../services/imgbb_service.dart';
+import '../services/imobiliaria_service.dart';
 import '../services/usuario_service.dart';
 import '../utils/documento_validator.dart';
 import '../utils/moderacao.dart';
@@ -354,6 +355,22 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
 
       final documento = _documentoController.text.trim();
 
+      // se for corretor de empresa, acha (ou cria) a imobiliaria pelo cnpj --
+      // o vinculo so fica confirmado quando alguem que loga com o e-mail da
+      // imobiliaria aceitar, la na tela do mapa
+      String imobiliariaId = '';
+      bool vinculoConfirmado = false;
+      if (_mostraSecaoEmpresa) {
+        imobiliariaId = await ImobiliariaService.instance.encontrarOuCriar(
+          nome: _nomeEmpresaController.text.trim(),
+          cnpj: _cnpjEmpresaController.text.trim(),
+          email: _emailEmpresaController.text.trim(),
+          endereco: _enderecoEmpresaController.text.trim(),
+        );
+        // se ja estava vinculado a essa mesma imobiliaria, mantem o status
+        vinculoConfirmado = widget.perfil.imobiliariaId == imobiliariaId && widget.perfil.vinculoConfirmado;
+      }
+
       final atualizado = Usuario(
         uid: widget.perfil.uid,
         nome: nome,
@@ -381,6 +398,8 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
         enderecoEmpresa: _mostraSecaoEmpresa ? _enderecoEmpresaController.text.trim() : '',
         emailEmpresa: _mostraSecaoEmpresa ? _emailEmpresaController.text.trim() : '',
         emailEmpresaVerificado: false,
+        imobiliariaId: imobiliariaId,
+        vinculoConfirmado: vinculoConfirmado,
       );
 
       await UsuarioService.instance.completarPerfil(atualizado);
