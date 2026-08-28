@@ -36,7 +36,16 @@ class _DetalhesImovelScreenState extends State<DetalhesImovelScreen> {
 
   Future<void> _rotaDaMinhaLocalizacaoAteAqui() async {
     setState(() => _buscandoLocalizacao = true);
-    final origem = await obterLocalizacaoAtual();
+    LatLng? origem;
+    try {
+      origem = await obterLocalizacaoAtual();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao obter sua localização: $e'), backgroundColor: corErro),
+        );
+      }
+    }
     if (!mounted) return;
     setState(() => _buscandoLocalizacao = false);
 
@@ -210,19 +219,28 @@ class _DetalhesImovelScreenState extends State<DetalhesImovelScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        // o design que antes era do botao "casa" (que nao tinha funcao
-        // nenhuma, so decorativo) foi pro botao de voltar de verdade
-        leading: Padding(
-          padding: const EdgeInsets.all(8),
+        // o design que antes era do badge "casa/evento" (que nao tinha
+        // funcao nenhuma, so decorativo, e ainda vinha quebrado por causa do
+        // bug de largura) foi reaproveitado no botao de voltar de verdade --
+        // leadingWidth explicito + Center garante que o badge fique
+        // centralizado no espaco reservado da AppBar, nao so dentro de si mesmo
+        leadingWidth: 64,
+        leading: Center(
           child: Material(
             color: Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(18),
             child: InkWell(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(18),
               onTap: () => Navigator.pop(context),
               child: Container(
-                decoration: BoxDecoration(gradient: gradientePrincipal, borderRadius: BorderRadius.circular(14)),
-                child: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: isEvento ? gradienteEvento : gradientePrincipal,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 20),
               ),
             ),
           ),

@@ -54,8 +54,21 @@ class _CentroDoMapaState extends State<CentroDoMapa>
 
   List<Imovel> _imoveisDoBanco = [];
 
+  // estado visual da rota (markers/polyline) montado a partir de
+  // rotaAtivaGlobal/rotaCarregandoGlobal -- o calculo em si roda fora dessa
+  // tela (ver main.dart e rota_service.dart) porque essa State e recriada
+  // toda vez que o usuario troca de aba, entao nao pode ser a dona do
+  // Future -- so espelha o que ja esta pronto globalmente
+  Set<Marker> _marcadoresRota = {};
+  Set<Polyline> _rotas = {};
+  RotaAtiva? _rotaAtual;
+  bool _carregandoRota = false;
+
   late VoidCallback _temaListener;
   late VoidCallback _filtroListener;
+  late VoidCallback _rotaAtivaListener;
+  late VoidCallback _rotaCarregandoListener;
+  late VoidCallback _rotaErroListener;
 
   late AnimationController _animIniciaisController;
   late Animation<double> _fadeAnim;
@@ -104,6 +117,29 @@ class _CentroDoMapaState extends State<CentroDoMapa>
       if (mounted) _atualizarMarcadoresFiltrados();
     };
     _filtroState.addListener(_filtroListener);
+
+    // espelha o resultado/estado de carregamento da rota, que sao globais
+    // (ver comentario nos campos acima) -- inclui o valor JA atual na hora
+    // de montar essa tela, pra cobrir o caso de trocar de aba enquanto uma
+    // rota ainda esta sendo calculada em outra instancia que ja foi destruida
+    _sincronizarComRotaGlobal();
+    _rotaAtivaListener = () {
+      if (mounted) _atualizarEstadoDaRota();
+    };
+    rotaAtivaGlobal.addListener(_rotaAtivaListener);
+    _rotaCarregandoListener = () {
+      if (mounted) setState(() => _carregandoRota = rotaCarregandoGlobal.value);
+    };
+    rotaCarregandoGlobal.addListener(_rotaCarregandoListener);
+    _rotaErroListener = () {
+      final erro = rotaErroGlobal.value;
+      if (erro == null || !mounted) return;
+      rotaErroGlobal.value = null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível calcular a rota: $erro'), backgroundColor: corErro),
+      );
+    };
+    rotaErroGlobal.addListener(_rotaErroListener);
 
     _buscaController.addListener(() {
       setState(() => _buscaComTexto = _buscaController.text.isNotEmpty);
@@ -228,6 +264,9 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   void dispose() {
     temaGlobal.removeListener(_temaListener);
     _filtroState.removeListener(_filtroListener);
+    rotaAtivaGlobal.removeListener(_rotaAtivaListener);
+    rotaCarregandoGlobal.removeListener(_rotaCarregandoListener);
+    rotaErroGlobal.removeListener(_rotaErroListener);
     _filtroState.dispose();
     _debounceSugestoes?.cancel();
     _buscaController.dispose();
@@ -288,6 +327,56 @@ class _CentroDoMapaState extends State<CentroDoMapa>
       context,
       MaterialPageRoute(builder: (_) => DetalhesImovelScreen(imovel: imovel)),
     );
+  }
+
+  // so mexe nos campos, sem setState -- usado no initState (onde o setState
+  // e desnecessario e arriscado, ja que o primeiro build ainda nem rodou)
+  void _sincronizarComRotaGlobal() {
+    final ativa = rotaAtivaGlobal.value;
+    _rotaAtual = ativa;
+    _carregandoRota = rotaCarregandoGlobal.value;
+    if (ativa == null) {
+      _rotas = {};
+      _marcadoresRota = {};
+      return;
+    }
+    _rotas = {
+      Polyline(
+        polylineId: const PolylineId('rota_ativa'),
+        points: ativa.resultado.pontos,
+        color: corPrimaria,
+        width: 5,
+      ),
+    };
+    _marcadoresRota = {
+      Marker(
+        markerId: const MarkerId('rota_origem'),
+        position: ativa.origem,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+      ),
+      Marker(
+        markerId: const MarkerId('rota_destino'),
+        position: ativa.destino,
+        infoWindow: InfoWindow(title: ativa.nomeDestino),
+      ),
+    };
+  }
+
+  // reconstroi markers/polyline a partir do rotaAtivaGlobal atual e enquadra
+  // a camera -- chamado toda vez que o valor global muda (depois do primeiro build)
+  void _atualizarEstadoDaRota() {
+    setState(_sincronizarComRotaGlobal);
+
+    final ativa = rotaAtivaGlobal.value;
+    if (ativa != null) {
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLngBounds(RotaService.calcularBounds(ativa.resultado.pontos), 60),
+      );
+    }
+  }
+
+  void _limparRota() {
+    rotaAtivaGlobal.value = null;
   }
 
   void _atualizarEstiloMapa() {
@@ -813,7 +902,8 @@ class _CentroDoMapaState extends State<CentroDoMapa>
           myLocationEnabled: true,
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
-          markers: _marcadores,
+          markers: {..._marcadores, ..._marcadoresRota},
+          polylines: _rotas,
           mapType: _modoMapaAtual == 'Satélite' ? MapType.satellite : MapType.normal,
           style: _estiloAtivo,
         ),
@@ -938,6 +1028,68 @@ class _CentroDoMapaState extends State<CentroDoMapa>
             ),
           ),
         ),
+
+        // cartao com a distancia/duracao da rota pedida na tela de detalhes,
+        // ou um spinner enquanto ela ainda ta sendo calculada
+        if (_carregandoRota || _rotaAtual != null)
+          Positioned(
+            top: topOffset + 68,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: isDark ? corCardEscuro : Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withAlpha(isDark ? 60 : 15), blurRadius: 16, offset: const Offset(0, 6)),
+                ],
+              ),
+              child: _carregandoRota
+                  ? Row(
+                      children: [
+                        const SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.5, color: corPrimaria),
+                        ),
+                        const SizedBox(width: 12),
+                        Text('Calculando rota...', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(gradient: gradientePrincipal, borderRadius: BorderRadius.circular(10)),
+                          child: const Icon(Icons.alt_route_rounded, color: Colors.white, size: 18),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Até ${_rotaAtual!.nomeDestino}',
+                                style: TextStyle(fontWeight: FontWeight.w700, color: isDark ? Colors.white : Colors.black87),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${_rotaAtual!.resultado.distanciaTexto} · ${_rotaAtual!.resultado.duracaoTexto}',
+                                style: AppTextStyles.caption.copyWith(color: isDark ? Colors.white38 : Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: _limparRota,
+                          icon: Icon(Icons.close_rounded, color: isDark ? Colors.white38 : Colors.grey),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
 
         // botao pra focar na localizacao do usuario
         Positioned(

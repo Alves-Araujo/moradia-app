@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show ValueNotifier;
+import 'package:flutter/foundation.dart' show ValueNotifier, debugPrint;
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng, LatLngBounds;
 
@@ -28,12 +28,63 @@ class RotaResultado {
   });
 }
 
+// rota ja calculada, pronta pra desenhar -- guarda tambem origem/destino
+// (os markers) e o nome digitado/escolhido pro destino, pro card de
+// distancia/duracao mostrar
+class RotaAtiva {
+  final RotaResultado resultado;
+  final LatLng origem;
+  final LatLng destino;
+  final String nomeDestino;
+
+  RotaAtiva({
+    required this.resultado,
+    required this.origem,
+    required this.destino,
+    required this.nomeDestino,
+  });
+}
+
+// resultado da rota mais recente e se uma busca ta em andamento -- ficam
+// globais (mesmo padrao do temaGlobal) de proposito: o CentroDoMapa e
+// recriado do zero toda vez que o usuario troca de aba (a TelaPrincipal usa
+// uma key baseada no indice na IndexedStack), entao guardar isso preso a
+// State dele faria o resultado se perder se o calculo terminasse com o
+// mapa fora da tela
+final ValueNotifier<bool> rotaCarregandoGlobal = ValueNotifier(false);
+final ValueNotifier<RotaAtiva?> rotaAtivaGlobal = ValueNotifier(null);
+
+// mensagem de erro da ultima tentativa de rota -- o mapa escuta isso pra
+// mostrar um SnackBar (antes uma falha aqui sumia sem avisar ninguem)
+final ValueNotifier<String?> rotaErroGlobal = ValueNotifier(null);
+
+// dispara o calculo de uma rota pendente e publica o resultado -- funcao
+// solta, sem dono, pra nao ser interrompida se a tela que a chamou for
+// desmontada no meio do caminho
+Future<void> processarPedidoDeRota(RotaPendente pendente, String apiKey) async {
+  rotaCarregandoGlobal.value = true;
+  try {
+    final resultado = await RotaService(apiKey).buscarRota(origem: pendente.origem, destino: pendente.destino);
+    rotaAtivaGlobal.value = RotaAtiva(
+      resultado: resultado,
+      origem: pendente.origem,
+      destino: pendente.destino,
+      nomeDestino: pendente.nomeDestino,
+    );
+  } catch (e) {
+    debugPrint('Erro ao calcular rota: $e');
+    rotaErroGlobal.value = e.toString();
+  } finally {
+    rotaCarregandoGlobal.value = false;
+  }
+}
+
 // wrapper fino sobre o flutter_polyline_points pra buscar a rota entre 2 pontos
 class RotaService {
   RotaService(this._apiKey);
   final String _apiKey;
 
-  Future<RotaResultado?> buscarRota({required LatLng origem, required LatLng destino}) async {
+  Future<RotaResultado> buscarRota({required LatLng origem, required LatLng destino}) async {
     final polylinePoints = PolylinePoints(apiKey: _apiKey);
 
     // PolylineRequest usa a Directions API "classica" de proposito -- foi ela
@@ -48,7 +99,12 @@ class RotaService {
       ),
     );
 
-    if (resultado.points.isEmpty) return null;
+    // antes isso so virava um "null" silencioso -- agora propaga o motivo
+    // de verdade (status + mensagem que o Google devolveu), essencial pra
+    // descobrir problema de chave de API/restricao/limite
+    if (resultado.points.isEmpty) {
+      throw Exception('${resultado.status ?? 'Sem rota'}: ${resultado.errorMessage ?? 'nenhum trajeto encontrado'}');
+    }
 
     return RotaResultado(
       pontos: resultado.points.map((p) => LatLng(p.latitude, p.longitude)).toList(),

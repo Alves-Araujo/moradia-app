@@ -13,6 +13,7 @@ import 'screens/map_screen.dart';
 import 'screens/painel_screen.dart';
 import 'screens/resumo_screen.dart';
 import 'screens/chat_list_screen.dart';
+import 'services/rota_service.dart';
 
 // controle do tema do app inteiro
 final ValueNotifier<ThemeMode> temaGlobal = ValueNotifier(ThemeMode.system);
@@ -128,7 +129,22 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
+  _ouvirPedidosDeRota();
+
   runApp(const MeuAppEstudantil());
+}
+
+// escuta em nivel de app (nao preso a nenhuma tela) os pedidos de rota
+// feitos na tela de detalhes -- assim o calculo continua ate o fim mesmo se
+// o usuario trocar de aba enquanto ele roda (ver comentario em rotaAtivaGlobal)
+void _ouvirPedidosDeRota() {
+  rotaPendenteGlobal.addListener(() {
+    final pendente = rotaPendenteGlobal.value;
+    if (pendente != null) {
+      rotaPendenteGlobal.value = null;
+      processarPedidoDeRota(pendente, googleMapsApiKey);
+    }
+  });
 }
 
 class MeuAppEstudantil extends StatelessWidget {
@@ -213,6 +229,7 @@ class _TelaPrincipalState extends State<TelaPrincipal>
   late final List<Widget> _telas;
   late final List<_ItemNav> _itensNav;
   late AnimationController _navAnimController;
+  late VoidCallback _rotaPendenteListener;
 
   // painel de imoveis so aparece pra quem pode anunciar (proprietario/corretor)
   bool get _temPainel =>
@@ -239,10 +256,23 @@ class _TelaPrincipalState extends State<TelaPrincipal>
       duration: const Duration(milliseconds: 300),
     );
     _navAnimController.forward();
+
+    // a tela de detalhes pode ter sido aberta a partir da aba Resumo, mas a
+    // rota so eh desenhada no mapa -- escuta rotaCarregandoGlobal (nao
+    // rotaPendenteGlobal direto, que ja e consumido/zerado pelo listener de
+    // app em _ouvirPedidosDeRota antes desse aqui rodar) e troca pra aba do
+    // Mapa assim que uma busca de rota comeca
+    _rotaPendenteListener = () {
+      if (rotaCarregandoGlobal.value && mounted && _indiceAtual != 0) {
+        setState(() => _indiceAtual = 0);
+      }
+    };
+    rotaCarregandoGlobal.addListener(_rotaPendenteListener);
   }
 
   @override
   void dispose() {
+    rotaCarregandoGlobal.removeListener(_rotaPendenteListener);
     _navAnimController.dispose();
     super.dispose();
   }
