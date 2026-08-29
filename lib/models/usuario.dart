@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'endereco.dart';
 
 class Usuario {
   final String uid;
@@ -13,15 +14,15 @@ class Usuario {
 
   final String genero;
 
-  final String cidade;
+  final String cidade; // regiao/cidade de interesse (busca), nao a do endereco
   final String cpf;
   final String cnpj;
   final String dataNascimento; // dd/MM/aaaa
-  final String endereco;
+  final Endereco endereco;
 
   // preenchido so quando estudante menor de 18
   final String responsavelNome;
-  final String responsavelEndereco;
+  final Endereco responsavelEndereco;
   final String responsavelCpf;
   final String responsavelEmail;
   final bool responsavelEmailVerificado;
@@ -29,7 +30,7 @@ class Usuario {
   // preenchido so quando corretor de empresa
   final String nomeEmpresa;
   final String cnpjEmpresa;
-  final String enderecoEmpresa;
+  final Endereco enderecoEmpresa;
   final String emailEmpresa;
   final bool emailEmpresaVerificado;
 
@@ -52,15 +53,15 @@ class Usuario {
     this.cpf = '',
     this.cnpj = '',
     this.dataNascimento = '',
-    this.endereco = '',
+    this.endereco = const Endereco(),
     this.responsavelNome = '',
-    this.responsavelEndereco = '',
+    this.responsavelEndereco = const Endereco(),
     this.responsavelCpf = '',
     this.responsavelEmail = '',
     this.responsavelEmailVerificado = false,
     this.nomeEmpresa = '',
     this.cnpjEmpresa = '',
-    this.enderecoEmpresa = '',
+    this.enderecoEmpresa = const Endereco(),
     this.emailEmpresa = '',
     this.emailEmpresaVerificado = false,
     this.imobiliariaId = '',
@@ -83,15 +84,15 @@ class Usuario {
       cpf: map['cpf'] ?? '',
       cnpj: map['cnpj'] ?? '',
       dataNascimento: map['dataNascimento'] ?? '',
-      endereco: map['endereco'] ?? '',
+      endereco: Endereco.fromMap(map, (c) => 'endereco$c'),
       responsavelNome: map['responsavelNome'] ?? '',
-      responsavelEndereco: map['responsavelEndereco'] ?? '',
+      responsavelEndereco: Endereco.fromMap(map, (c) => 'responsavel$c'),
       responsavelCpf: map['responsavelCpf'] ?? '',
       responsavelEmail: map['responsavelEmail'] ?? '',
       responsavelEmailVerificado: map['responsavelEmailVerificado'] ?? false,
       nomeEmpresa: map['nomeEmpresa'] ?? '',
       cnpjEmpresa: map['cnpjEmpresa'] ?? '',
-      enderecoEmpresa: map['enderecoEmpresa'] ?? '',
+      enderecoEmpresa: Endereco.fromMap(map, (c) => '${_decapitalizar(c)}Empresa'),
       emailEmpresa: map['emailEmpresa'] ?? '',
       emailEmpresaVerificado: map['emailEmpresaVerificado'] ?? false,
       imobiliariaId: map['imobiliariaId'] ?? '',
@@ -114,15 +115,15 @@ class Usuario {
       'cpf': cpf,
       'cnpj': cnpj,
       'dataNascimento': dataNascimento,
-      'endereco': endereco,
+      ...endereco.toMap((c) => 'endereco$c'),
       'responsavelNome': responsavelNome,
-      'responsavelEndereco': responsavelEndereco,
+      ...responsavelEndereco.toMap((c) => 'responsavel$c'),
       'responsavelCpf': responsavelCpf,
       'responsavelEmail': responsavelEmail,
       'responsavelEmailVerificado': responsavelEmailVerificado,
       'nomeEmpresa': nomeEmpresa,
       'cnpjEmpresa': cnpjEmpresa,
-      'enderecoEmpresa': enderecoEmpresa,
+      ...enderecoEmpresa.toMap((c) => '${_decapitalizar(c)}Empresa'),
       'emailEmpresa': emailEmpresa,
       'emailEmpresaVerificado': emailEmpresaVerificado,
       'imobiliariaId': imobiliariaId,
@@ -130,3 +131,7 @@ class Usuario {
     };
   }
 }
+
+// 'Cep' -> 'cep', pra bater com o padrao "campoEmpresa" (cepEmpresa,
+// logradouroEmpresa...) que segue a mesma convencao de nomeEmpresa/cnpjEmpresa
+String _decapitalizar(String texto) => texto.isEmpty ? texto : '${texto[0].toLowerCase()}${texto.substring(1)}';

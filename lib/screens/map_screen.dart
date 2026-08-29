@@ -53,6 +53,12 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   Set<Marker> _marcadores = {};
   bool _buscaComTexto = false;
 
+  // destaque visual do resultado de busca selecionado -- rua vira linha,
+  // bairro/regiao vira area translucida, ponto de interesse vira marker
+  Set<Polyline> _destaqueRuaBusca = {};
+  Set<Polygon> _destaqueAreaBusca = {};
+  Marker? _destaquePoiBusca;
+
   List<Imovel> _imoveisDoBanco = [];
 
   // estado visual da rota (markers/polyline) montado a partir de
@@ -67,6 +73,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
 
   late VoidCallback _temaListener;
   late VoidCallback _filtroListener;
+  late VoidCallback _cidadeFiltroListener;
   late VoidCallback _rotaAtivaListener;
   late VoidCallback _rotaCarregandoListener;
   late VoidCallback _rotaErroListener;
@@ -120,6 +127,11 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     };
     _filtroState.addListener(_filtroListener);
 
+    _cidadeFiltroListener = () {
+      if (mounted) _atualizarMarcadoresFiltrados();
+    };
+    cidadeFiltroGlobal.addListener(_cidadeFiltroListener);
+
     // espelha o resultado/estado de carregamento da rota, que sao globais
     // (ver comentario nos campos acima) -- inclui o valor JA atual na hora
     // de montar essa tela, pra cobrir o caso de trocar de aba enquanto uma
@@ -144,7 +156,10 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     rotaErroGlobal.addListener(_rotaErroListener);
 
     _buscaController.addListener(() {
-      setState(() => _buscaComTexto = _buscaController.text.isNotEmpty);
+      setState(() {
+        _buscaComTexto = _buscaController.text.isNotEmpty;
+        if (!_buscaComTexto) _limparDestaqueBusca();
+      });
       _atualizarMarcadoresFiltrados();
 
       // debounce so pras sugestoes -- evita recalcular a lista a cada tecla
@@ -159,14 +174,14 @@ class _CentroDoMapaState extends State<CentroDoMapa>
           _sugestoes = BuscaService.instance.buscarSugestoes(termo, _imoveisDoBanco);
         });
 
-        // cidades/regioes de verdade vem depois, via busca online -- soma
-        // na lista sem duplicar, e so aplica se o texto nao mudou nesse meio tempo
-        final cidadesOnline = await BuscaService.instance.buscarCidadesOnline(termo);
-        if (!mounted || _buscaController.text != termo || cidadesOnline.isEmpty) return;
+        // ruas, bairros e cidades de verdade vem depois, via busca online --
+        // soma na lista sem duplicar, e so aplica se o texto nao mudou nesse meio tempo
+        final locaisOnline = await BuscaService.instance.buscarLocaisOnline(termo);
+        if (!mounted || _buscaController.text != termo || locaisOnline.isEmpty) return;
         setState(() {
           final jaTem = _sugestoes.map((s) => normalizarNome(s.texto)).toSet();
-          for (final cidade in cidadesOnline) {
-            if (jaTem.add(normalizarNome(cidade.texto))) _sugestoes.add(cidade);
+          for (final local in locaisOnline) {
+            if (jaTem.add(normalizarNome(local.texto))) _sugestoes.add(local);
           }
         });
       });
@@ -270,11 +285,61 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     );
   }
 
+  // limpa qualquer destaque de busca anterior (chamado toda vez que uma nova
+  // busca comeca ou o texto e apagado)
+  void _limparDestaqueBusca() {
+    _destaqueRuaBusca = {};
+    _destaqueAreaBusca = {};
+    _destaquePoiBusca = null;
+  }
+
+  // ao escolher um resultado, desenha o destaque certo pro tipo de local
+  // (igual o Google Maps faz: rua pintada, bairro delimitado, POI com pin) e
+  // enquadra a camera no que foi desenhado
   void _selecionarSugestao(SugestaoBusca sugestao) {
     _buscaController.text = sugestao.texto;
     _buscaFocusNode.unfocus();
-    setState(() => _sugestoes = []);
-    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(sugestao.destino, 16));
+    setState(() {
+      _sugestoes = [];
+      _limparDestaqueBusca();
+
+      switch (sugestao.tipoGeometria) {
+        case TipoGeometria.linha:
+          _destaqueRuaBusca = {
+            Polyline(
+              polylineId: const PolylineId('destaque_busca'),
+              points: sugestao.pontosGeometria,
+              color: const Color(0xFFFF6D00),
+              width: 6,
+            ),
+          };
+        case TipoGeometria.area:
+          _destaqueAreaBusca = {
+            Polygon(
+              polygonId: const PolygonId('destaque_busca'),
+              points: sugestao.pontosGeometria,
+              fillColor: corPrimaria.withAlpha(50),
+              strokeColor: corPrimaria,
+              strokeWidth: 2,
+            ),
+          };
+        case TipoGeometria.ponto:
+          _destaquePoiBusca = Marker(
+            markerId: const MarkerId('destaque_busca'),
+            position: sugestao.destino,
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
+            infoWindow: InfoWindow(title: sugestao.texto),
+          );
+      }
+    });
+
+    if (sugestao.pontosGeometria.length > 1) {
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLngBounds(RotaService.calcularBounds(sugestao.pontosGeometria), 60),
+      );
+    } else {
+      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(sugestao.destino, 16));
+    }
   }
 
   // reage na hora se o usuario trocar o modo escuro/claro do celular
@@ -289,6 +354,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     WidgetsBinding.instance.removeObserver(this);
     temaGlobal.removeListener(_temaListener);
     _filtroState.removeListener(_filtroListener);
+    cidadeFiltroGlobal.removeListener(_cidadeFiltroListener);
     rotaAtivaGlobal.removeListener(_rotaAtivaListener);
     rotaCarregandoGlobal.removeListener(_rotaCarregandoListener);
     rotaErroGlobal.removeListener(_rotaErroListener);
@@ -323,7 +389,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
             .every((tag) => item.tags.contains(tag));
         if (!temTodasAsTags) return false;
       }
-      if (_filtroState.cidadeSelecionada != null && item.cidade != _filtroState.cidadeSelecionada) {
+      if (cidadeFiltroGlobal.value != null && item.cidade != cidadeFiltroGlobal.value) {
         return false;
       }
       return true;
@@ -432,19 +498,106 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     _obterLocalizacaoReal();
   }
 
+  // chip fixo na barra superior -- so navega a camera ate a cidade parceira
+  // escolhida, nunca oculta/filtra imovel nenhum (isso e trabalho do filtro
+  // de cidade que fica dentro da folha de Filtros, uma funcao separada)
+  Widget _buildSeletorCidadeGlobal(bool isDark) {
+    return GestureDetector(
+      onTap: _abrirSeletorCidadeGlobal,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark ? corCardEscuro : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isDark ? Colors.white.withAlpha(15) : Colors.grey.withAlpha(40)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.explore_outlined, size: 15, color: isDark ? Colors.white54 : Colors.grey),
+            const SizedBox(width: 6),
+            Text(
+              'Cidades parceiras',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: isDark ? Colors.white70 : Colors.black87),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: isDark ? Colors.white54 : Colors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // essa barra e so pras cidades PARCEIRAS do app (lista fixa) -- nao mistura
+  // com cidades soltas vindas de imoveis cadastrados, e so move a camera (voo
+  // suave ate o centro da cidade); nunca esconde nem filtra nenhum imovel
+  void _abrirSeletorCidadeGlobal() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cidades = locaisConhecidosGeral.where((l) => l.tipo == TipoSugestao.cidade).toList()
+      ..sort((a, b) => a.texto.compareTo(b.texto));
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? corCardEscuro : Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Cidades parceiras', style: AppTextStyles.heading3.copyWith(color: isDark ? Colors.white : Colors.black87)),
+                const SizedBox(height: 4),
+                Text(
+                  'Só leva a câmera até a região escolhida -- nenhum imóvel some do mapa. Pra buscar um endereço específico, use a busca lá em cima.',
+                  style: AppTextStyles.caption.copyWith(color: isDark ? Colors.white38 : Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 320),
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.public_rounded, color: corPrimaria),
+                        title: const Text('Visão geral (região do Inatel)'),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _mapController?.animateCamera(CameraUpdate.newLatLngZoom(posicaoInatel, 15));
+                        },
+                      ),
+                      for (final cidade in cidades)
+                        ListTile(
+                          leading: const Icon(Icons.location_city_rounded, color: corPrimaria),
+                          title: Text(cidade.texto, style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
+                          onTap: () {
+                            Navigator.pop(sheetContext);
+                            _mapController?.animateCamera(CameraUpdate.newLatLngZoom(cidade.destino, 13));
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _mostrarFiltros() {
     bool isDark = Theme.of(context).brightness == Brightness.dark;
 
     double precoTemp = _filtroState.precoMaximo;
     List<String> tagsTemp = List.from(_filtroState.tagsSelecionadas);
-    String? cidadeTemp = _filtroState.cidadeSelecionada;
+    String? cidadeTemp = cidadeFiltroGlobal.value;
 
-    // cidades conhecidas + cidades que ja tem imovel cadastrado, sem repetir
-    final cidadesDisponiveis = <String>{
-      ...locaisConhecidosParaCidade,
-      ..._imoveisDoBanco.map((i) => i.cidade).where((c) => c.isNotEmpty),
-    }.toList()
-      ..sort();
+    // mesma lista fixa de cidades parceiras usada no chip de cima -- ver
+    // comentario em _abrirSeletorCidadeGlobal
+    final cidadesDisponiveis = List<String>.from(locaisConhecidosParaCidade)..sort();
 
     showModalBottomSheet(
       context: context,
@@ -654,7 +807,8 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                     label: 'Mostrar Resultados',
                     icon: Icons.search_rounded,
                     onTap: () {
-                      _filtroState.aplicarEstado(preco: precoTemp, tags: tagsTemp, cidade: cidadeTemp);
+                      _filtroState.aplicarEstado(preco: precoTemp, tags: tagsTemp);
+                      cidadeFiltroGlobal.value = cidadeTemp;
 
                       Navigator.pop(context);
                       final qtd = tagsTemp.length + (precoTemp < 3000 ? 1 : 0) + (cidadeTemp != null ? 1 : 0);
@@ -973,8 +1127,13 @@ class _CentroDoMapaState extends State<CentroDoMapa>
           myLocationEnabled: true,
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
-          markers: {..._marcadores, ..._marcadoresRota},
-          polylines: _rotas,
+          markers: {
+            ..._marcadores,
+            ..._marcadoresRota,
+            ?_destaquePoiBusca,
+          },
+          polylines: {..._rotas, ..._destaqueRuaBusca},
+          polygons: _destaqueAreaBusca,
           mapType: _modoMapaAtual == 'Satélite' ? MapType.satellite : MapType.normal,
           style: _estiloAtivo,
         ),
@@ -1057,6 +1216,9 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                       ),
                     ],
                   ),
+                  const SizedBox(height: 10),
+                  _buildSeletorCidadeGlobal(isDark),
+
                   if (_sugestoes.isNotEmpty && _buscaFocusNode.hasFocus)
                     Container(
                       margin: const EdgeInsets.only(top: 8),
@@ -1082,6 +1244,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                             TipoSugestao.cidade => Icons.location_city_rounded,
                             TipoSugestao.faculdade => Icons.school_rounded,
                             TipoSugestao.moradia => Icons.home_rounded,
+                            TipoSugestao.endereco => Icons.signpost_outlined,
                           };
                           return ListTile(
                             leading: Icon(icone, color: corPrimaria),

@@ -1,8 +1,10 @@
+import 'package:flutter/gestures.dart' show TapGestureRecognizer;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show TextInputFormatter;
 import 'package:image_picker/image_picker.dart';
 import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
 import '../main.dart';
+import '../models/endereco.dart';
 import '../models/usuario.dart';
 import '../services/busca_service.dart';
 import '../services/imgbb_service.dart';
@@ -12,6 +14,7 @@ import '../utils/documento_validator.dart';
 import '../utils/moderacao.dart';
 import '../widgets/animated_gradient_button.dart';
 import '../widgets/avatar_widget.dart';
+import '../widgets/campo_endereco.dart';
 import '../widgets/seletor_tipo_usuario.dart';
 
 const List<String> generosDisponiveis = [
@@ -35,16 +38,17 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
 
   late final TextEditingController _nomeController;
   late TextEditingController _cidadeController; // fornecido pelo proprio Autocomplete
-  final _enderecoController = TextEditingController();
+  final _enderecoControllers = EnderecoControllers();
   final _documentoController = TextEditingController();
+  final _generoOutroController = TextEditingController();
 
   final _nomeEmpresaController = TextEditingController();
   final _cnpjEmpresaController = TextEditingController();
-  final _enderecoEmpresaController = TextEditingController();
+  final _enderecoEmpresaControllers = EnderecoControllers();
   final _emailEmpresaController = TextEditingController();
 
   final _respNomeController = TextEditingController();
-  final _respEnderecoController = TextEditingController();
+  final _respEnderecoControllers = EnderecoControllers();
   final _respCpfController = TextEditingController();
   final _respEmailController = TextEditingController();
 
@@ -61,6 +65,7 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
   String _fotoUrl = '';
   bool _enviandoFoto = false;
   bool _salvando = false;
+  bool _aceitouTermos = false;
 
   // proprietario e corretor autonomo podem escolher CPF ou CNPJ; corretor de
   // empresa tem o CNPJ na secao da empresa, entao o documento pessoal dele e sempre CPF
@@ -80,11 +85,17 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
     super.initState();
     final p = widget.perfil;
     _nomeController = TextEditingController(text: p.nome);
-    _enderecoController.text = p.endereco;
+    _enderecoControllers.preencher(p.endereco);
     _fotoUrl = p.fotoUrl;
     _tipoSelecionado = p.tipoUsuario.isNotEmpty ? p.tipoUsuario : null;
     _subtipoCorretor = p.subtipoCorretor;
-    _generoSelecionado = p.genero;
+    // genero customizado (nao esta na lista fixa) -> reabre como "Outro" com o texto salvo
+    if (p.genero.isNotEmpty && !generosDisponiveis.contains(p.genero)) {
+      _generoSelecionado = 'Outro';
+      _generoOutroController.text = p.genero;
+    } else {
+      _generoSelecionado = p.genero;
+    }
     _documentoEhCnpj = p.cnpj.isNotEmpty;
     _documentoController.text = _documentoEhCnpj ? p.cnpj : p.cpf;
     if (p.dataNascimento.isNotEmpty) {
@@ -95,10 +106,10 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
     }
     _nomeEmpresaController.text = p.nomeEmpresa;
     _cnpjEmpresaController.text = p.cnpjEmpresa;
-    _enderecoEmpresaController.text = p.enderecoEmpresa;
+    _enderecoEmpresaControllers.preencher(p.enderecoEmpresa);
     _emailEmpresaController.text = p.emailEmpresa;
     _respNomeController.text = p.responsavelNome;
-    _respEnderecoController.text = p.responsavelEndereco;
+    _respEnderecoControllers.preencher(p.responsavelEndereco);
     _respCpfController.text = p.responsavelCpf;
     _respEmailController.text = p.responsavelEmail;
   }
@@ -106,14 +117,15 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
   @override
   void dispose() {
     _nomeController.dispose();
-    _enderecoController.dispose();
+    _enderecoControllers.dispose();
     _documentoController.dispose();
+    _generoOutroController.dispose();
     _nomeEmpresaController.dispose();
     _cnpjEmpresaController.dispose();
-    _enderecoEmpresaController.dispose();
+    _enderecoEmpresaControllers.dispose();
     _emailEmpresaController.dispose();
     _respNomeController.dispose();
-    _respEnderecoController.dispose();
+    _respEnderecoControllers.dispose();
     _respCpfController.dispose();
     _respEmailController.dispose();
     super.dispose();
@@ -122,6 +134,29 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
   void _mostrarErro(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: corErro),
+    );
+  }
+
+  void _mostrarTermosDePrivacidade() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: isDark ? corCardEscuro : Colors.white,
+        title: const Text('Termos de Privacidade'),
+        content: const SingleChildScrollView(
+          child: Text(
+            'Ao usar o Hive, você concorda que os dados enviados aqui (documentos, endereço, '
+            'foto) são usados só pra validar seu cadastro e conectar você com anunciantes/'
+            'estudantes dentro do app. Nada é vendido ou repassado pra terceiros. '
+            'Dados sensíveis (CPF/CNPJ, endereço) ficam visíveis só pra você; o que aparece pro '
+            'resto dos usuários é o perfil público (nome, foto, avaliações).',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Fechar')),
+        ],
+      ),
     );
   }
 
@@ -161,6 +196,9 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
     if (_tipoSelecionado == null) return 'Selecione o tipo de conta.';
 
     if (_generoSelecionado.isEmpty) return 'Selecione seu gênero.';
+    if (_generoSelecionado == 'Outro' && _generoOutroController.text.trim().isEmpty) {
+      return 'Especifique seu gênero em "Outro".';
+    }
 
     if (_dataNascimento == null) return 'Informe a data de nascimento.';
 
@@ -172,10 +210,12 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
       if (!validarCPF(documento)) return 'CPF inválido.';
     }
 
+    // enderecos (pessoal, empresa, responsavel) ja sao validados campo a
+    // campo pelo proprio Form via CampoEndereco -- aqui so o que nao tem
+    // TextFormField.validator
     if (_mostraSecaoEmpresa) {
       if (_nomeEmpresaController.text.trim().isEmpty) return 'Informe o nome da empresa.';
       if (!validarCNPJ(_cnpjEmpresaController.text.trim())) return 'CNPJ da empresa inválido.';
-      if (_enderecoEmpresaController.text.trim().isEmpty) return 'Informe o endereço corporativo.';
       if (!_emailEmpresaController.text.trim().contains('@')) return 'Informe um e-mail válido da empresa.';
     }
 
@@ -185,7 +225,6 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
 
     if (_mostraSecaoResponsavel) {
       if (_respNomeController.text.trim().isEmpty) return 'Informe o nome do responsável.';
-      if (_respEnderecoController.text.trim().isEmpty) return 'Informe o endereço do responsável.';
       if (!validarCPF(_respCpfController.text.trim())) return 'CPF do responsável inválido.';
       if (!_respEmailController.text.trim().contains('@')) return 'Informe um e-mail válido do responsável.';
     }
@@ -194,6 +233,10 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
   }
 
   Future<void> _salvar() async {
+    if (!_aceitouTermos) {
+      _mostrarErro('Você precisa concordar com os termos de privacidade.');
+      return;
+    }
     if (!_formKey.currentState!.validate()) return;
 
     final nome = _nomeController.text.trim();
@@ -231,7 +274,7 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
           nome: _nomeEmpresaController.text.trim(),
           cnpj: _cnpjEmpresaController.text.trim(),
           email: _emailEmpresaController.text.trim(),
-          endereco: _enderecoEmpresaController.text.trim(),
+          endereco: _enderecoEmpresaControllers.valor.formatado,
         );
         // se ja estava vinculado a essa mesma imobiliaria, mantem o status
         vinculoConfirmado = widget.perfil.imobiliariaId == imobiliariaId && widget.perfil.vinculoConfirmado;
@@ -246,20 +289,20 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
         subtipoCorretor: _tipoSelecionado == 'corretor' ? _subtipoCorretor : '',
         fotoUrl: _fotoUrl,
         perfilCompleto: true,
-        genero: _generoSelecionado,
+        genero: _generoSelecionado == 'Outro' ? _generoOutroController.text.trim() : _generoSelecionado,
         cidade: _cidadeController.text.trim(),
         cpf: _documentoEhCnpj ? '' : documento,
         cnpj: _documentoEhCnpj ? documento : '',
         dataNascimento: _dataFormatada(_dataNascimento!),
-        endereco: _enderecoController.text.trim(),
+        endereco: _enderecoControllers.valor,
         responsavelNome: _mostraSecaoResponsavel ? _respNomeController.text.trim() : '',
-        responsavelEndereco: _mostraSecaoResponsavel ? _respEnderecoController.text.trim() : '',
+        responsavelEndereco: _mostraSecaoResponsavel ? _respEnderecoControllers.valor : const Endereco(),
         responsavelCpf: _mostraSecaoResponsavel ? _respCpfController.text.trim() : '',
         responsavelEmail: _mostraSecaoResponsavel ? _respEmailController.text.trim() : '',
         responsavelEmailVerificado: false,
         nomeEmpresa: _mostraSecaoEmpresa ? _nomeEmpresaController.text.trim() : '',
         cnpjEmpresa: _mostraSecaoEmpresa ? _cnpjEmpresaController.text.trim() : '',
-        enderecoEmpresa: _mostraSecaoEmpresa ? _enderecoEmpresaController.text.trim() : '',
+        enderecoEmpresa: _mostraSecaoEmpresa ? _enderecoEmpresaControllers.valor : const Endereco(),
         emailEmpresa: _mostraSecaoEmpresa ? _emailEmpresaController.text.trim() : '',
         emailEmpresaVerificado: false,
         imobiliariaId: imobiliariaId,
@@ -355,8 +398,9 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
                   },
                 ),
                 const SizedBox(height: 14),
-                _campo(controller: _enderecoController, label: 'Endereço atual', icon: Icons.home_outlined, isDark: isDark,
-                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe seu endereço' : null),
+                Text('Endereço atual', style: AppTextStyles.captionBold.copyWith(color: isDark ? Colors.white70 : Colors.black87)),
+                const SizedBox(height: 10),
+                CampoEndereco(controllers: _enderecoControllers, isDark: isDark),
                 const SizedBox(height: 14),
                 _campoData(isDark),
               ],
@@ -395,6 +439,16 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
                     );
                   }).toList(),
                 ),
+                if (_generoSelecionado == 'Outro') ...[
+                  const SizedBox(height: 12),
+                  _campo(
+                    controller: _generoOutroController,
+                    label: 'Especifique seu gênero',
+                    icon: Icons.edit_outlined,
+                    isDark: isDark,
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Especifique seu gênero' : null,
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 20),
@@ -506,7 +560,9 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
                   _campo(controller: _cnpjEmpresaController, label: 'CNPJ da empresa', icon: Icons.badge_outlined, isDark: isDark,
                       keyboardType: TextInputType.number, formatters: [_mascaraCnpjEmpresa]),
                   const SizedBox(height: 14),
-                  _campo(controller: _enderecoEmpresaController, label: 'Endereço corporativo', icon: Icons.location_on_outlined, isDark: isDark),
+                  Text('Endereço corporativo', style: AppTextStyles.captionBold.copyWith(color: isDark ? Colors.white70 : Colors.black87)),
+                  const SizedBox(height: 10),
+                  CampoEndereco(controllers: _enderecoEmpresaControllers, isDark: isDark),
                   const SizedBox(height: 14),
                   _campo(controller: _emailEmpresaController, label: 'E-mail da empresa', icon: Icons.email_outlined, isDark: isDark,
                       keyboardType: TextInputType.emailAddress),
@@ -528,7 +584,9 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
                 filhos: [
                   _campo(controller: _respNomeController, label: 'Nome do responsável', icon: Icons.person_outline, isDark: isDark),
                   const SizedBox(height: 14),
-                  _campo(controller: _respEnderecoController, label: 'Endereço do responsável', icon: Icons.home_outlined, isDark: isDark),
+                  Text('Endereço do responsável', style: AppTextStyles.captionBold.copyWith(color: isDark ? Colors.white70 : Colors.black87)),
+                  const SizedBox(height: 10),
+                  CampoEndereco(controllers: _respEnderecoControllers, isDark: isDark),
                   const SizedBox(height: 14),
                   _campo(controller: _respCpfController, label: 'CPF do responsável', icon: Icons.badge_outlined, isDark: isDark,
                       keyboardType: TextInputType.number, formatters: [_mascaraCpfResponsavel]),
@@ -544,12 +602,49 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
               ),
             ],
 
-            const SizedBox(height: 32),
-            AnimatedGradientButton(
-              label: 'Salvar perfil',
-              icon: Icons.check_circle_outline_rounded,
-              isLoading: _salvando,
-              onTap: _salvar,
+            const SizedBox(height: 24),
+            GestureDetector(
+              onTap: () => setState(() => _aceitouTermos = !_aceitouTermos),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Checkbox(
+                    value: _aceitouTermos,
+                    activeColor: corPrimaria,
+                    onChanged: (v) => setState(() => _aceitouTermos = v ?? false),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: RichText(
+                        text: TextSpan(
+                          style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13),
+                          children: [
+                            const TextSpan(text: 'Concordo com os '),
+                            TextSpan(
+                              text: 'termos de privacidade',
+                              style: const TextStyle(color: corPrimaria, fontWeight: FontWeight.w700),
+                              recognizer: TapGestureRecognizer()..onTap = _mostrarTermosDePrivacidade,
+                            ),
+                            const TextSpan(text: '.'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            AnimatedOpacity(
+              opacity: _aceitouTermos ? 1.0 : 0.5,
+              duration: const Duration(milliseconds: 200),
+              child: AnimatedGradientButton(
+                label: 'Finalizar Cadastro',
+                icon: Icons.check_circle_outline_rounded,
+                isLoading: _salvando,
+                onTap: _aceitouTermos ? _salvar : null,
+              ),
             ),
           ],
         ),

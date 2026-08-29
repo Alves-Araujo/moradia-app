@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
+import '../models/filtro_state.dart' show cidadeFiltroGlobal;
 import '../models/imovel.dart';
 import '../models/usuario.dart';
 import 'detalhes_imovel_screen.dart';
@@ -158,7 +159,11 @@ class _TelaResumoState extends State<TelaResumo> with SingleTickerProviderStateM
 
         // lista de imoveis vindo do Firestore
         Expanded(
-          child: StreamBuilder<QuerySnapshot>(
+          // o filtro de cidade e global (mesmo seletor que aparece no mapa),
+          // entao escuta ele aqui tambem pra essa lista respeitar a mesma escolha
+          child: ValueListenableBuilder<String?>(
+            valueListenable: cidadeFiltroGlobal,
+            builder: (context, cidadeFiltro, _) => StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('imoveis').snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
@@ -176,6 +181,7 @@ class _TelaResumoState extends State<TelaResumo> with SingleTickerProviderStateM
               }).toList() ?? [];
 
               final imoveisFiltrados = imoveisDoBanco.where((i) {
+                if (cidadeFiltro != null && i.cidade != cidadeFiltro) return false;
                 if (_filtroTipo == 'Todos') return true;
                 if (_filtroTipo == 'Moradias') return i.tipo == TipoListing.moradia;
                 return i.tipo == TipoListing.evento;
@@ -242,6 +248,7 @@ class _TelaResumoState extends State<TelaResumo> with SingleTickerProviderStateM
                 },
               );
             },
+            ),
           ),
         ),
       ],
