@@ -18,8 +18,10 @@ import 'services/rota_service.dart';
 // controle do tema do app inteiro
 final ValueNotifier<ThemeMode> temaGlobal = ValueNotifier(ThemeMode.system);
 
-// posicao do inatel, usada como centro padrao do mapa e destino da rota
-const LatLng posicaoInatel = LatLng(-22.2528, -45.6976);
+// posicao do inatel, usada como centro padrao do mapa e destino da rota --
+// coordenada conferida na base do OpenStreetMap (o valor antigo era uma
+// estimativa que caia fora do campus, ver busca_service.dart)
+const LatLng posicaoInatel = LatLng(-22.2573047, -45.6958702);
 
 // chave usada pra chamar a Directions API (calculo de rota) -- essa e a
 // chave do app Android no Firebase (mesmo projeto moradias-inatel, ver

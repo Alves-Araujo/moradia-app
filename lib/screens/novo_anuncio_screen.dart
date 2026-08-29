@@ -224,8 +224,8 @@ class _NovoAnuncioScreenState extends State<NovoAnuncioScreen> {
 
     try {
       final enderecoFormatado = _enderecoCompleto;
-      double lat = -22.2528;
-      double lng = -45.6976;
+      double lat = posicaoInatel.latitude;
+      double lng = posicaoInatel.longitude;
 
       // transforma o endereco digitado em lat/lng
       try {

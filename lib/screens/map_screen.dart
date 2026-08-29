@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart' show TravelMode;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
@@ -53,10 +54,11 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   Set<Marker> _marcadores = {};
   bool _buscaComTexto = false;
 
-  // destaque visual do resultado de busca selecionado -- rua vira linha,
-  // bairro/regiao vira area translucida, ponto de interesse vira marker
+  // destaque visual do resultado de busca selecionado -- rua vira linha
+  // solida, bairro/regiao vira contorno tracejado SEM preenchimento (igual o
+  // Google Maps mostra), ponto de interesse vira marker
   Set<Polyline> _destaqueRuaBusca = {};
-  Set<Polygon> _destaqueAreaBusca = {};
+  Set<Polyline> _destaqueAreaBusca = {};
   Marker? _destaquePoiBusca;
 
   List<Imovel> _imoveisDoBanco = [];
@@ -70,6 +72,11 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   Set<Polyline> _rotas = {};
   RotaAtiva? _rotaAtual;
   bool _carregandoRota = false;
+  // so pra destacar o icone certo no seletor de transporte -- guardado a
+  // parte do RotaAtiva.modo porque "moto" nao existe na Directions API
+  // classica, entao na hora de pedir a rota ele vira "carro" por baixo dos
+  // panos (ver _trocarModoTransporte), mas a UI continua mostrando moto selecionada
+  TravelMode _modoTransporteUi = TravelMode.driving;
 
   late VoidCallback _temaListener;
   late VoidCallback _filtroListener;
@@ -173,6 +180,13 @@ class _CentroDoMapaState extends State<CentroDoMapa>
         setState(() {
           _sugestoes = BuscaService.instance.buscarSugestoes(termo, _imoveisDoBanco);
         });
+
+        // se ja achou uma instituicao conhecida (Inatel, UNIFEI, FAI, UNIVÁS...)
+        // na lista fixa, nao busca online pra essa mesma consulta -- evita que
+        // um bairro/regiao homonimo do Nominatim apareca do lado do pin certo
+        // e a pessoa acabe clicando no lugar errado
+        final achouInstituicaoConhecida = _sugestoes.any((s) => s.tipo == TipoSugestao.faculdade);
+        if (achouInstituicaoConhecida) return;
 
         // ruas, bairros e cidades de verdade vem depois, via busca online --
         // soma na lista sem duplicar, e so aplica se o texto nao mudou nesse meio tempo
@@ -314,13 +328,17 @@ class _CentroDoMapaState extends State<CentroDoMapa>
             ),
           };
         case TipoGeometria.area:
+          // igual o Google Maps mostra pra bairro/regiao: so o contorno
+          // tracejado, sem nenhum preenchimento -- por isso e um Polyline
+          // fechado (o Polygon do plugin nao suporta traco pontilhado) com
+          // as pontas iguais, nao um Polygon com fillColor
           _destaqueAreaBusca = {
-            Polygon(
-              polygonId: const PolygonId('destaque_busca'),
+            Polyline(
+              polylineId: const PolylineId('destaque_busca'),
               points: sugestao.pontosGeometria,
-              fillColor: corPrimaria.withAlpha(50),
-              strokeColor: corPrimaria,
-              strokeWidth: 2,
+              color: const Color(0xFFE53935),
+              width: 4,
+              patterns: [PatternItem.dash(20), PatternItem.gap(12)],
             ),
           };
         case TipoGeometria.ponto:
@@ -473,6 +491,56 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     rotaAtivaGlobal.value = null;
   }
 
+  // reusa o mesmo pipeline global (rotaPendenteGlobal -> processarPedidoDeRota)
+  // que a tela de detalhes ja usa, so trocando o modo -- refaz a chamada na
+  // Directions API com o mesmo par origem/destino e redesenha a rota certa
+  void _trocarModoTransporte(TravelMode modoEscolhido) {
+    if (_rotaAtual == null) return;
+    setState(() => _modoTransporteUi = modoEscolhido);
+
+    // "moto" nao existe na Directions API classica (so na Routes API nova,
+    // que exigiria habilitar outra api no google cloud) -- usa carro como
+    // aproximacao por baixo dos panos, mantendo o icone de moto selecionado na UI
+    final modoParaApi = modoEscolhido == TravelMode.twoWheeler ? TravelMode.driving : modoEscolhido;
+
+    rotaPendenteGlobal.value = RotaPendente(
+      origem: _rotaAtual!.origem,
+      destino: _rotaAtual!.destino,
+      nomeDestino: _rotaAtual!.nomeDestino,
+      modo: modoParaApi,
+    );
+  }
+
+  Widget _seletorModoTransporte(bool isDark) {
+    const opcoes = [
+      (TravelMode.driving, Icons.directions_car_rounded),
+      (TravelMode.walking, Icons.directions_walk_rounded),
+      (TravelMode.bicycling, Icons.directions_bike_rounded),
+      (TravelMode.twoWheeler, Icons.two_wheeler_rounded),
+      (TravelMode.transit, Icons.directions_bus_rounded),
+    ];
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: opcoes.map((opcao) {
+        final (modo, icone) = opcao;
+        final selecionado = _modoTransporteUi == modo;
+        return GestureDetector(
+          onTap: _carregandoRota ? null : () => _trocarModoTransporte(modo),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              gradient: selecionado ? gradientePrincipal : null,
+              color: selecionado ? null : (isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(15)),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icone, size: 20, color: selecionado ? Colors.white : (isDark ? Colors.white54 : Colors.grey.shade700)),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   // antes so checava "== ThemeMode.dark" -- como o padrao do app e
   // ThemeMode.system, o mapa nunca respeitava o modo escuro do celular
   // (sempre caia no estilo claro). Agora, quando ta em "sistema", consulta
@@ -533,8 +601,6 @@ class _CentroDoMapaState extends State<CentroDoMapa>
   // suave ate o centro da cidade); nunca esconde nem filtra nenhum imovel
   void _abrirSeletorCidadeGlobal() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cidades = locaisConhecidosGeral.where((l) => l.tipo == TipoSugestao.cidade).toList()
-      ..sort((a, b) => a.texto.compareTo(b.texto));
 
     showModalBottomSheet(
       context: context,
@@ -561,14 +627,17 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                     shrinkWrap: true,
                     children: [
                       ListTile(
-                        leading: const Icon(Icons.public_rounded, color: corPrimaria),
-                        title: const Text('Visão geral (região do Inatel)'),
+                        leading: const Icon(Icons.zoom_out_map_rounded, color: corPrimaria),
+                        title: const Text('Visão geral'),
+                        subtitle: const Text('Só afasta o zoom, sem mover o mapa'),
                         onTap: () {
                           Navigator.pop(sheetContext);
-                          _mapController?.animateCamera(CameraUpdate.newLatLngZoom(posicaoInatel, 15));
+                          // so um zoom out de verdade -- mantem o centro onde
+                          // a camera ja esta, nao pula pra nenhuma coordenada fixa
+                          _mapController?.animateCamera(CameraUpdate.zoomOut());
                         },
                       ),
-                      for (final cidade in cidades)
+                      for (final cidade in cidadesParceiras)
                         ListTile(
                           leading: const Icon(Icons.location_city_rounded, color: corPrimaria),
                           title: Text(cidade.texto, style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
@@ -595,9 +664,9 @@ class _CentroDoMapaState extends State<CentroDoMapa>
     List<String> tagsTemp = List.from(_filtroState.tagsSelecionadas);
     String? cidadeTemp = cidadeFiltroGlobal.value;
 
-    // mesma lista fixa de cidades parceiras usada no chip de cima -- ver
-    // comentario em _abrirSeletorCidadeGlobal
-    final cidadesDisponiveis = List<String>.from(locaisConhecidosParaCidade)..sort();
+    // mesma lista fixa de cidades parceiras usada no chip de cima -- so essas
+    // 4 opcoes (+ "todas"), sem misturar com o resto da lista de busca
+    final cidadesDisponiveis = cidadesParceiras.map((c) => c.texto).toList()..sort();
 
     showModalBottomSheet(
       context: context,
@@ -1132,8 +1201,7 @@ class _CentroDoMapaState extends State<CentroDoMapa>
             ..._marcadoresRota,
             ?_destaquePoiBusca,
           },
-          polylines: {..._rotas, ..._destaqueRuaBusca},
-          polygons: _destaqueAreaBusca,
+          polylines: {..._rotas, ..._destaqueRuaBusca, ..._destaqueAreaBusca},
           mapType: _modoMapaAtual == 'Satélite' ? MapType.satellite : MapType.normal,
           style: _estiloAtivo,
         ),
@@ -1279,49 +1347,61 @@ class _CentroDoMapaState extends State<CentroDoMapa>
                   BoxShadow(color: Colors.black.withAlpha(isDark ? 60 : 15), blurRadius: 16, offset: const Offset(0, 6)),
                 ],
               ),
-              child: _carregandoRota
-                  ? Row(
-                      children: [
-                        const SizedBox(
-                          width: 18, height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2.5, color: corPrimaria),
-                        ),
-                        const SizedBox(width: 12),
-                        Text('Calculando rota...', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
-                      ],
-                    )
-                  : Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(gradient: gradientePrincipal, borderRadius: BorderRadius.circular(10)),
-                          child: const Icon(Icons.alt_route_rounded, color: Colors.white, size: 18),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Até ${_rotaAtual!.nomeDestino}',
-                                style: TextStyle(fontWeight: FontWeight.w700, color: isDark ? Colors.white : Colors.black87),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_rotaAtual != null) ...[
+                    _seletorModoTransporte(isDark),
+                    const SizedBox(height: 12),
+                    Divider(height: 1, color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20)),
+                    const SizedBox(height: 12),
+                  ],
+                  _carregandoRota
+                      ? Row(
+                          children: [
+                            const SizedBox(
+                              width: 18, height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2.5, color: corPrimaria),
+                            ),
+                            const SizedBox(width: 12),
+                            Text('Calculando rota...', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87)),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(gradient: gradientePrincipal, borderRadius: BorderRadius.circular(10)),
+                              child: const Icon(Icons.alt_route_rounded, color: Colors.white, size: 18),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Até ${_rotaAtual!.nomeDestino}',
+                                    style: TextStyle(fontWeight: FontWeight.w700, color: isDark ? Colors.white : Colors.black87),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${_rotaAtual!.resultado.distanciaTexto} · ${_rotaAtual!.resultado.duracaoTexto}',
+                                    style: AppTextStyles.caption.copyWith(color: isDark ? Colors.white38 : Colors.grey),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                '${_rotaAtual!.resultado.distanciaTexto} · ${_rotaAtual!.resultado.duracaoTexto}',
-                                style: AppTextStyles.caption.copyWith(color: isDark ? Colors.white38 : Colors.grey),
-                              ),
-                            ],
-                          ),
+                            ),
+                            IconButton(
+                              onPressed: _limparRota,
+                              icon: Icon(Icons.close_rounded, color: isDark ? Colors.white38 : Colors.grey),
+                            ),
+                          ],
                         ),
-                        IconButton(
-                          onPressed: _limparRota,
-                          icon: Icon(Icons.close_rounded, color: isDark ? Colors.white38 : Colors.grey),
-                        ),
-                      ],
-                    ),
+                ],
+              ),
             ),
           ),
 

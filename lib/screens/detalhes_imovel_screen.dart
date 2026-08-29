@@ -1,11 +1,13 @@
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../main.dart';
 import '../models/avaliacao.dart';
 import '../models/imovel.dart';
 import '../models/perfil_publico.dart';
 import '../services/avaliacao_service.dart';
+import '../services/busca_service.dart';
 import '../services/perfil_publico_service.dart';
 import '../services/rota_service.dart';
 import '../utils/localizacao.dart';
@@ -58,48 +60,35 @@ class _DetalhesImovelScreenState extends State<DetalhesImovelScreen> {
     _dispararRotaEVoltar(origem: origem, destino: widget.imovel.posicao, nomeDestino: widget.imovel.titulo);
   }
 
+  // mesmo motor de busca hibrida da barra principal do mapa (locais
+  // conhecidos + imoveis cadastrados + Nominatim online) -- em vez de
+  // geocodificar o texto cru (que falhava toda hora com "nao encontramos
+  // esse endereco"), a rota usa direto a coordenada da sugestao escolhida
   Future<void> _rotaDaquiParaDestinoDigitado() async {
-    final controller = TextEditingController();
-    final destinoTexto = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Pra onde você quer ir?'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Ex: Inatel'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Traçar rota')),
-        ],
-      ),
-    );
-    if (destinoTexto == null || destinoTexto.isEmpty || !mounted) return;
-
+    List<Imovel> imoveis = [];
     try {
-      final geocoding = Geocoding();
-      final locais = await geocoding.locationFromAddress(destinoTexto);
-      if (locais.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Não encontramos esse endereço.'), backgroundColor: corErro),
-          );
-        }
-        return;
-      }
-      _dispararRotaEVoltar(
-        origem: widget.imovel.posicao,
-        destino: LatLng(locais.first.latitude, locais.first.longitude),
-        nomeDestino: destinoTexto,
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao buscar esse endereço: $e'), backgroundColor: corErro),
-        );
-      }
+      final snap = await FirebaseFirestore.instance.collection('imoveis').get();
+      imoveis = snap.docs.map((d) => Imovel.fromMap(d.data(), d.id)).toList();
+    } catch (_) {
+      // sem os imoveis cadastrados a busca ainda funciona (locais conhecidos + online)
     }
+    if (!mounted) return;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sugestaoEscolhida = await showModalBottomSheet<SugestaoBusca>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: isDark ? corCardEscuro : Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (sheetContext) => _SeletorDeDestino(imoveis: imoveis),
+    );
+    if (sugestaoEscolhida == null || !mounted) return;
+
+    _dispararRotaEVoltar(
+      origem: widget.imovel.posicao,
+      destino: sugestaoEscolhida.destino,
+      nomeDestino: sugestaoEscolhida.texto,
+    );
   }
 
   void _abrirModalDeRota() {
@@ -476,6 +465,152 @@ class _DetalhesImovelScreenState extends State<DetalhesImovelScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+// campo de busca hibrida (a mesma logica da barra do mapa) dentro do modal
+// de rota -- sugere locais conhecidos, imoveis do sistema e, depois de um
+// pouco, ruas/bairros de verdade via busca online. Devolve a SugestaoBusca
+// escolhida (com a coordenada ja pronta) via Navigator.pop
+class _SeletorDeDestino extends StatefulWidget {
+  final List<Imovel> imoveis;
+  const _SeletorDeDestino({required this.imoveis});
+
+  @override
+  State<_SeletorDeDestino> createState() => _SeletorDeDestinoState();
+}
+
+class _SeletorDeDestinoState extends State<_SeletorDeDestino> {
+  final _controller = TextEditingController();
+  Timer? _debounce;
+  List<SugestaoBusca> _sugestoes = [];
+  bool _buscando = false;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _aoDigitar(String texto) {
+    _debounce?.cancel();
+    if (texto.trim().length < 2) {
+      setState(() {
+        _sugestoes = [];
+        _buscando = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _sugestoes = BuscaService.instance.buscarSugestoes(texto, widget.imoveis);
+      _buscando = true;
+    });
+
+    _debounce = Timer(const Duration(milliseconds: 400), () async {
+      // achou instituicao conhecida (Inatel, UNIFEI...) -- nao busca online
+      // pra evitar bairro homonimo competindo com o pin certo
+      final achouInstituicao = _sugestoes.any((s) => s.tipo == TipoSugestao.faculdade);
+      if (!achouInstituicao) {
+        final online = await BuscaService.instance.buscarLocaisOnline(texto);
+        if (mounted && _controller.text == texto) {
+          setState(() {
+            final jaTem = _sugestoes.map((s) => s.texto.toLowerCase()).toSet();
+            for (final s in online) {
+              if (jaTem.add(s.texto.toLowerCase())) _sugestoes.add(s);
+            }
+          });
+        }
+      }
+      if (mounted) setState(() => _buscando = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withAlpha(30) : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text('Pra onde você quer ir?', style: AppTextStyles.heading3.copyWith(color: isDark ? Colors.white : Colors.black87)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              onChanged: _aoDigitar,
+              style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+              decoration: InputDecoration(
+                hintText: 'Ex: Inatel, um bairro, uma rua...',
+                hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
+                prefixIcon: const Icon(Icons.search_rounded, color: corPrimaria),
+                filled: true,
+                fillColor: isDark ? Colors.white.withAlpha(8) : Colors.grey.withAlpha(15),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 280),
+              child: _sugestoes.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        _buscando ? 'Buscando...' : 'Digite pra ver sugestões de ruas, bairros, instituições e imóveis.',
+                        style: AppTextStyles.caption.copyWith(color: isDark ? Colors.white38 : Colors.grey),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _sugestoes.length,
+                      separatorBuilder: (_, _) => Divider(
+                        height: 1,
+                        color: isDark ? Colors.white.withAlpha(10) : Colors.grey.withAlpha(20),
+                      ),
+                      itemBuilder: (context, index) {
+                        final sugestao = _sugestoes[index];
+                        final icone = switch (sugestao.tipo) {
+                          TipoSugestao.cidade => Icons.location_city_rounded,
+                          TipoSugestao.faculdade => Icons.school_rounded,
+                          TipoSugestao.moradia => Icons.home_rounded,
+                          TipoSugestao.endereco => Icons.signpost_outlined,
+                        };
+                        return ListTile(
+                          leading: Icon(icone, color: corPrimaria),
+                          title: Text(
+                            sugestao.texto,
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => Navigator.pop(context, sugestao),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

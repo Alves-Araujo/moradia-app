@@ -10,8 +10,14 @@ class RotaPendente {
   final LatLng origem;
   final LatLng destino;
   final String nomeDestino;
+  final TravelMode modo;
 
-  RotaPendente({required this.origem, required this.destino, required this.nomeDestino});
+  RotaPendente({
+    required this.origem,
+    required this.destino,
+    required this.nomeDestino,
+    this.modo = TravelMode.driving,
+  });
 }
 
 final ValueNotifier<RotaPendente?> rotaPendenteGlobal = ValueNotifier(null);
@@ -29,19 +35,23 @@ class RotaResultado {
 }
 
 // rota ja calculada, pronta pra desenhar -- guarda tambem origem/destino
-// (os markers) e o nome digitado/escolhido pro destino, pro card de
-// distancia/duracao mostrar
+// (os markers), o nome digitado/escolhido pro destino (pro card de
+// distancia/duracao mostrar) e o modo usado (pra saber qual icone destacar
+// no seletor de transporte e poder recalcular no mesmo par origem/destino
+// quando o usuario troca de carro pra a pe, por exemplo)
 class RotaAtiva {
   final RotaResultado resultado;
   final LatLng origem;
   final LatLng destino;
   final String nomeDestino;
+  final TravelMode modo;
 
   RotaAtiva({
     required this.resultado,
     required this.origem,
     required this.destino,
     required this.nomeDestino,
+    required this.modo,
   });
 }
 
@@ -64,12 +74,17 @@ final ValueNotifier<String?> rotaErroGlobal = ValueNotifier(null);
 Future<void> processarPedidoDeRota(RotaPendente pendente, String apiKey) async {
   rotaCarregandoGlobal.value = true;
   try {
-    final resultado = await RotaService(apiKey).buscarRota(origem: pendente.origem, destino: pendente.destino);
+    final resultado = await RotaService(apiKey).buscarRota(
+      origem: pendente.origem,
+      destino: pendente.destino,
+      modo: pendente.modo,
+    );
     rotaAtivaGlobal.value = RotaAtiva(
       resultado: resultado,
       origem: pendente.origem,
       destino: pendente.destino,
       nomeDestino: pendente.nomeDestino,
+      modo: pendente.modo,
     );
   } catch (e) {
     debugPrint('Erro ao calcular rota: $e');
@@ -84,18 +99,24 @@ class RotaService {
   RotaService(this._apiKey);
   final String _apiKey;
 
-  Future<RotaResultado> buscarRota({required LatLng origem, required LatLng destino}) async {
+  Future<RotaResultado> buscarRota({
+    required LatLng origem,
+    required LatLng destino,
+    TravelMode modo = TravelMode.driving,
+  }) async {
     final polylinePoints = PolylinePoints(apiKey: _apiKey);
 
     // PolylineRequest usa a Directions API "classica" de proposito -- foi ela
     // que habilitamos no google cloud, nao a Routes API nova (que o pacote
-    // tambem suporta, mas exigiria habilitar outra api)
+    // tambem suporta, mas exigiria habilitar outra api). Por isso "moto"
+    // (TravelMode.twoWheeler) nao existe na API classica do Google -- usamos
+    // o modo de carro como aproximacao nesse caso (ver mapeamento no mapa)
     final resultado = await polylinePoints.getRouteBetweenCoordinates(
       // ignore: deprecated_member_use
       request: PolylineRequest(
         origin: PointLatLng(origem.latitude, origem.longitude),
         destination: PointLatLng(destino.latitude, destino.longitude),
-        mode: TravelMode.driving,
+        mode: modo,
       ),
     );
 
