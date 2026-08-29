@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
 import '../models/imovel.dart';
 import '../models/usuario.dart';
+import '../utils/moeda.dart';
 
 // dashboard so pra proprietarios/corretores -- lista os proprios imoveis
 // cadastrados, atualizando ao vivo
@@ -140,7 +141,7 @@ class _ItemPainel extends StatelessWidget {
           ),
           if (!isEvento)
             Text(
-              'R\$ ${imovel.preco.toInt()}',
+              formatarPreco(imovel.preco),
               style: AppTextStyles.bodyBold.copyWith(color: corPrimaria),
             ),
         ],

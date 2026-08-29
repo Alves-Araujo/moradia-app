@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main.dart';
 import '../models/filtro_state.dart' show cidadeFiltroGlobal;
 import '../models/imovel.dart';
+import '../utils/moeda.dart';
 import '../models/usuario.dart';
 import 'detalhes_imovel_screen.dart';
 
@@ -427,7 +428,7 @@ class _CardImovel extends StatelessWidget {
                     child: Column(
                       children: [
                         Text(
-                          'R\$ ${imovel.preco.toInt()}',
+                          formatarPreco(imovel.preco),
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 14,

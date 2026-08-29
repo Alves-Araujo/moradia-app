@@ -11,6 +11,7 @@ import '../services/busca_service.dart';
 import '../services/perfil_publico_service.dart';
 import '../services/rota_service.dart';
 import '../utils/localizacao.dart';
+import '../utils/moeda.dart';
 import '../utils/tempo.dart';
 import '../widgets/animated_gradient_button.dart';
 import '../widgets/avatar_widget.dart';
@@ -321,7 +322,7 @@ class _DetalhesImovelScreenState extends State<DetalhesImovelScreen> {
                         ShaderMask(
                           shaderCallback: (bounds) => gradienteSecundario.createShader(bounds),
                           child: Text(
-                            'R\$ ${imovel.preco.toInt()}/mês',
+                            '${formatarPreco(imovel.preco)}/mês',
                             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: -0.5),
                           ),
                         ),

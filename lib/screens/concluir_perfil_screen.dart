@@ -6,7 +6,6 @@ import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
 import '../main.dart';
 import '../models/endereco.dart';
 import '../models/usuario.dart';
-import '../services/busca_service.dart';
 import '../services/imgbb_service.dart';
 import '../services/imobiliaria_service.dart';
 import '../services/usuario_service.dart';
@@ -37,7 +36,6 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
   final _picker = ImagePicker();
 
   late final TextEditingController _nomeController;
-  late TextEditingController _cidadeController; // fornecido pelo proprio Autocomplete
   final _enderecoControllers = EnderecoControllers();
   final _documentoController = TextEditingController();
   final _generoOutroController = TextEditingController();
@@ -290,7 +288,9 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
         fotoUrl: _fotoUrl,
         perfilCompleto: true,
         genero: _generoSelecionado == 'Outro' ? _generoOutroController.text.trim() : _generoSelecionado,
-        cidade: _cidadeController.text.trim(),
+        // cidade "de interesse" agora vem direto da cidade do endereco --
+        // nao pedimos mais separado (era duplicado, ver "Endereço atual" logo acima)
+        cidade: _enderecoControllers.cidade.text.trim(),
         cpf: _documentoEhCnpj ? '' : documento,
         cnpj: _documentoEhCnpj ? documento : '',
         dataNascimento: _dataFormatada(_dataNascimento!),
@@ -378,25 +378,6 @@ class _ConcluirPerfilScreenState extends State<ConcluirPerfilScreen> {
                 _campo(controller: _nomeController, label: 'Nome completo', icon: Icons.badge_outlined, isDark: isDark,
                     validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe seu nome' : null,
                     onChanged: (_) => setState(() {})),
-                const SizedBox(height: 14),
-                Autocomplete<String>(
-                  initialValue: TextEditingValue(text: widget.perfil.cidade),
-                  optionsBuilder: (value) {
-                    if (value.text.isEmpty) return const Iterable<String>.empty();
-                    final termo = normalizarNome(value.text);
-                    return locaisConhecidosParaCidade.where((c) => normalizarNome(c).contains(termo));
-                  },
-                  fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
-                    _cidadeController = controller;
-                    return _campo(
-                      controller: controller,
-                      focusNode: focusNode,
-                      label: 'Cidade / Região',
-                      icon: Icons.location_city_rounded,
-                      isDark: isDark,
-                    );
-                  },
-                ),
                 const SizedBox(height: 14),
                 Text('Endereço atual', style: AppTextStyles.captionBold.copyWith(color: isDark ? Colors.white70 : Colors.black87)),
                 const SizedBox(height: 10),
