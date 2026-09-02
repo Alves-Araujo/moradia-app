@@ -122,9 +122,3 @@ flutter run
 ```
 
 ---
-
-## 📌 Status
-
-Em desenvolvimento ativo. A estrutura de monitorias já está preparada nas regras, mas ainda não foi implementada na interface.
-
----
