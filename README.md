@@ -126,9 +126,3 @@ flutter run
 Em desenvolvimento ativo. A estrutura de monitorias já está preparada nas regras, mas ainda não foi implementada na interface.
 
 ---
-
-## 👤 Autor
-
-**Alves Araújo** — Engenharia de Computação no Inatel
-
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge)](https://www.linkedin.com/in/andr%C3%A9-alves-ara%C3%BAjo-589423311)
