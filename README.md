@@ -1,13 +1,15 @@
-# 🏡 Hive
+<p align="center">
+  <img src="./assets/banner.svg" width="100%" alt="Hive" />
+</p>
 
-**Plataforma de busca de moradia baseada em mapas, conectando estudantes, proprietários e corretores.**
-
-![Flutter](https://img.shields.io/badge/Flutter-0D1117?style=for-the-badge&logo=flutter&logoColor=02569B)
-![Dart](https://img.shields.io/badge/Dart-0D1117?style=for-the-badge&logo=dart&logoColor=0175C2)
-![Firebase](https://img.shields.io/badge/Firebase-0D1117?style=for-the-badge&logo=firebase&logoColor=FFCA28)
-![Google Maps](https://img.shields.io/badge/Google_Maps-0D1117?style=for-the-badge&logo=googlemaps&logoColor=4285F4)
-![Android](https://img.shields.io/badge/Android-0D1117?style=for-the-badge&logo=android&logoColor=3DDC84)
-![iOS](https://img.shields.io/badge/iOS-0D1117?style=for-the-badge&logo=ios&logoColor=FFFFFF)
+<p align="center">
+  <img src="https://img.shields.io/badge/Flutter-0D1117?style=for-the-badge&logo=flutter&logoColor=02569B" alt="Flutter" />
+  <img src="https://img.shields.io/badge/Dart-0D1117?style=for-the-badge&logo=dart&logoColor=0175C2" alt="Dart" />
+  <img src="https://img.shields.io/badge/Firebase-0D1117?style=for-the-badge&logo=firebase&logoColor=FFCA28" alt="Firebase" />
+  <img src="https://img.shields.io/badge/Google_Maps-0D1117?style=for-the-badge&logo=googlemaps&logoColor=4285F4" alt="Google Maps" />
+  <img src="https://img.shields.io/badge/Android-0D1117?style=for-the-badge&logo=android&logoColor=3DDC84" alt="Android" />
+  <img src="https://img.shields.io/badge/iOS-0D1117?style=for-the-badge&logo=ios&logoColor=FFFFFF" alt="iOS" />
+</p>
 
 O **Hive** resolve um problema concreto de cidade universitária: encontrar moradia perto da faculdade é lento, espalhado por grupos de WhatsApp e sem garantia nenhuma de quem está do outro lado. O app reúne isso num mapa, com perfis distintos para cada lado da negociação e comunicação direta dentro da própria plataforma.
 
