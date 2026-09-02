@@ -8,7 +8,6 @@
   <img src="https://img.shields.io/badge/Firebase-0D1117?style=for-the-badge&logo=firebase&logoColor=FFCA28" alt="Firebase" />
   <img src="https://img.shields.io/badge/Google_Maps-0D1117?style=for-the-badge&logo=googlemaps&logoColor=4285F4" alt="Google Maps" />
   <img src="https://img.shields.io/badge/Android-0D1117?style=for-the-badge&logo=android&logoColor=3DDC84" alt="Android" />
-  <img src="https://img.shields.io/badge/iOS-0D1117?style=for-the-badge&logo=ios&logoColor=FFFFFF" alt="iOS" />
 </p>
 
 O **Hive** resolve um problema concreto de cidade universitária: encontrar moradia perto da faculdade é lento, espalhado por grupos de WhatsApp e sem garantia nenhuma de quem está do outro lado. O app reúne isso num mapa, com perfis distintos para cada lado da negociação e comunicação direta dentro da própria plataforma.
@@ -79,7 +78,7 @@ As permissões ficam nas regras do Firebase, versionadas junto com o código em 
 | Mapas | Google Maps · Geocoding · Geolocator · Polyline Points |
 | Mídia | Image Picker · Record · AudioPlayers |
 | Chamadas | ZEGOCLOUD UIKit |
-| Plataformas | Android · iOS |
+| Plataforma | Android |
 
 ---
 
@@ -107,7 +106,7 @@ dart pub global activate flutterfire_cli
 flutterfire configure
 ```
 
-**4.** Adicione sua chave da API do Google Maps em `android/app/src/main/AndroidManifest.xml` e em `ios/Runner/AppDelegate.swift`.
+**4.** Adicione sua chave da API do Google Maps em `android/app/src/main/AndroidManifest.xml`.
 
 **5.** Publique as regras de segurança no seu projeto:
 
@@ -120,5 +119,11 @@ firebase deploy --only firestore:rules,storage:rules
 ```bash
 flutter run
 ```
+
+---
+
+## 📌 Status
+
+Em desenvolvimento ativo. Rodando em **Android**; a build para iOS ainda não foi configurada (falta a chave do Maps no AppDelegate e o `GoogleService-Info.plist`). A estrutura de monitorias já está preparada nas regras, mas ainda não foi implementada na interface.
 
 ---
